@@ -64,14 +64,26 @@ def build_runtime_config():
                 "Dòng tiêu đề (TMS)", 1, 50, C.TMS["header_row"], key="tms_hdr"
             )
 
-        with st.expander("File DS rủi ro", expanded=False):
-            cfg.RISK["mst_col"] = _col_input("risk_mst", "Cột MST", C.RISK["mst_col"])
-            cfg.RISK["doc_col"] = _col_input(
-                "risk_doc", "Cột văn bản (mặc định 5)", C.RISK["doc_col"]
+        with st.expander("File DS rủi ro (nhiều sheet)", expanded=False):
+            st.caption(
+                "Danh sách rủi ro gồm nhiều sheet, mỗi sheet một bố cục. "
+                "Chỉnh tên sheet / dòng tiêu đề / cột MST / cột (hoặc nhãn) văn bản:"
             )
-            cfg.RISK["header_row"] = st.number_input(
-                "Dòng tiêu đề (rủi ro)", 1, 50, C.RISK["header_row"], key="risk_hdr"
-            )
+            for i, spec in enumerate(cfg.RISK["sheets"]):
+                st.markdown(f"**Sheet {i + 1}**")
+                spec["name"] = st.text_input(
+                    "Tên sheet", value=spec["name"], key=f"risk_name_{i}"
+                )
+                spec["header_row"] = st.number_input(
+                    "Dòng tiêu đề", 1, 50, spec["header_row"], key=f"risk_hdr_{i}"
+                )
+                spec["mst_col"] = _col_input(
+                    f"risk_mst_{i}", "Cột MST", spec["mst_col"]
+                )
+                spec["doc_col"] = _col_input(
+                    f"risk_doc_{i}", "Cột văn bản (số) hoặc nhãn văn bản (chữ)",
+                    spec["doc_col"],
+                )
 
         with st.expander("File hóa đơn điện tử", expanded=False):
             for k, label in [
@@ -151,14 +163,20 @@ if st.button("▶️ Bắt đầu kiểm tra", type="primary", disabled=main_fil
     try:
         main_df = _load(main_file, cfg.MAIN["header_row"])
         tms_df = _load(tms_file, cfg.TMS["header_row"])
-        risk_df = _load(risk_file, cfg.RISK["header_row"])
         einv_df = _load(einv_file, cfg.EINVOICE["header_row"])
     except Exception as e:  # noqa: BLE001
         st.error(f"Lỗi khi đọc file: {e}")
         st.stop()
 
+    if einv_file is not None and (einv_df is None or einv_df.empty):
+        st.warning(
+            "⚠️ File hóa đơn điện tử không có dữ liệu (rỗng) — bỏ qua các bước tra "
+            "trạng thái HĐ và chênh lệch thuế. Vui lòng export lại file HĐĐT."
+        )
+
     try:
-        result = run_pipeline(main_df, tms_df, risk_df, einv_df, cfg=cfg)
+        # danh sách rủi ro gồm nhiều sheet -> truyền thẳng file
+        result = run_pipeline(main_df, tms_df, risk_file, einv_df, cfg=cfg)
     except Exception as e:  # noqa: BLE001
         st.error(f"Lỗi trong quá trình xử lý: {e}")
         st.exception(e)

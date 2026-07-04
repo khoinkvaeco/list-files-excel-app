@@ -21,9 +21,11 @@ def read_excel(file, header_row: int = 1, sheet_name=0) -> pd.DataFrame:
     """Đọc file Excel/CSV thành DataFrame.
 
     ``header_row`` đếm từ 1 (dòng tiêu đề). ``file`` có thể là đường dẫn
-    hoặc đối tượng file (ví dụ file upload của Streamlit).
+    hoặc đối tượng file (ví dụ file upload của Streamlit). ``sheet_name`` có
+    thể là chỉ số hoặc tên sheet.
     """
     name = getattr(file, "name", str(file)).lower()
+    _rewind(file)
     if name.endswith(".csv"):
         return pd.read_csv(file, header=header_row - 1, dtype=str, keep_default_na=False)
     return pd.read_excel(
@@ -33,6 +35,22 @@ def read_excel(file, header_row: int = 1, sheet_name=0) -> pd.DataFrame:
         dtype=object,
         engine="openpyxl",
     )
+
+
+def list_sheets(file) -> list[str]:
+    """Trả về danh sách tên sheet của file Excel."""
+    _rewind(file)
+    xls = pd.ExcelFile(file, engine="openpyxl")
+    return xls.sheet_names
+
+
+def _rewind(file) -> None:
+    """Đưa con trỏ đọc về đầu (cần cho file upload đọc nhiều lần)."""
+    if hasattr(file, "seek"):
+        try:
+            file.seek(0)
+        except (OSError, ValueError):
+            pass
 
 
 def to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:

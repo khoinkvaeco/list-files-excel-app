@@ -7,20 +7,19 @@ Dò từ khóa (golf, quà, tặng, biếu, rượu, wine, ...) trong cột tên
 from __future__ import annotations
 
 import re
-import unicodedata
 
 import pandas as pd
 
 from . import utils
 
 
-def _strip_accents(text: str) -> str:
-    nfkd = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
-
 def _norm(text) -> str:
-    return _strip_accents(str(text)).lower()
+    """Chỉ hạ chữ thường, GIỮ NGUYÊN dấu tiếng Việt.
+
+    Không bỏ dấu vì bỏ dấu khiến 'tặng' (quà tặng) trùng với 'tầng' (tầng lầu),
+    'tăng' (tăng cường)... gây rất nhiều cảnh báo sai.
+    """
+    return str(text).lower()
 
 
 def flag_non_business_goods(
@@ -31,7 +30,7 @@ def flag_non_business_goods(
     Thêm cột:
       - Mặt hàng nghi ngờ (bool)
       - Từ khóa khớp (chuỗi các từ khóa tìm thấy)
-    So khớp bỏ dấu tiếng Việt để bắt cả 'ruou' lẫn 'rượu'.
+    So khớp theo ranh giới từ, phân biệt dấu để tránh cảnh báo sai.
     """
     df = df.copy()
     col = utils.resolve_column(df, goods_col)
@@ -44,8 +43,9 @@ def flag_non_business_goods(
             return ""
         found = []
         for original, nk in norm_keywords:
-            # khớp theo ranh giới từ để tránh khớp nhầm (vd 'bia' trong 'biar')
-            if re.search(rf"(?<![a-z0-9]){re.escape(nk)}(?![a-z0-9])", text):
+            # (?<!\w)/(?!\w) là ranh giới từ có nhận biết chữ Unicode (tiếng Việt),
+            # tránh khớp nhầm khi từ khóa là một phần của từ khác.
+            if re.search(rf"(?<!\w){re.escape(nk)}(?!\w)", text):
                 found.append(original)
         return ", ".join(found)
 

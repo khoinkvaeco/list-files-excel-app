@@ -1,6 +1,8 @@
 """
-Tác vụ 6: Dò MST với danh sách doanh nghiệp có dấu hiệu rủi ro,
-lấy cột 5 (văn bản cảnh báo).
+Tác vụ 6: Dò MST với danh sách doanh nghiệp có dấu hiệu rủi ro.
+
+Danh sách rủi ro thường gồm NHIỀU sheet với bố cục khác nhau; mỗi sheet được
+khai báo riêng trong config (tên sheet, dòng tiêu đề, cột MST, cột/nhãn văn bản).
 """
 
 from __future__ import annotations
@@ -10,22 +12,58 @@ import pandas as pd
 from . import utils
 
 
-def build_risk_lookup(risk_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """Từ file DS rủi ro, trích: MST -> Văn bản (cột 5)."""
-    mst_col = utils.resolve_column(risk_df, cfg["mst_col"])
-    doc_col = utils.resolve_column(risk_df, cfg["doc_col"])
+def build_risk_lookup(file, cfg: dict) -> pd.DataFrame:
+    """Đọc toàn bộ các sheet rủi ro trong ``file`` và gộp thành bảng tra cứu.
 
-    out = pd.DataFrame(
-        {
-            "MST (chuẩn hóa)": utils.clean_mst_series(risk_df[mst_col]),
-            "Văn bản rủi ro": risk_df[doc_col].astype(str).str.strip(),
-        }
-    )
-    out = out[out["MST (chuẩn hóa)"] != ""]
+    ``cfg`` là dict RISK trong config, có khóa "sheets" là list các spec:
+        {name, header_row, mst_col, doc_col}
+    - doc_col là int  -> lấy văn bản theo từng dòng ở cột đó.
+    - doc_col là str  -> gán nhãn văn bản cố định cho mọi dòng của sheet.
+
+    Trả về DataFrame: MST (chuẩn hóa), Văn bản rủi ro.
+    """
+    available = set(utils.list_sheets(file))
+    frames = []
+
+    for spec in cfg["sheets"]:
+        name = spec["name"]
+        if name not in available:
+            # bỏ qua sheet không tồn tại thay vì lỗi (file có thể thay đổi)
+            continue
+        df = utils.read_excel(file, header_row=spec["header_row"], sheet_name=name)
+        if df.empty:
+            continue
+
+        try:
+            mst_col = utils.resolve_column(df, spec["mst_col"])
+        except (IndexError, KeyError):
+            continue
+        mst = utils.clean_mst_series(df[mst_col])
+
+        doc_ref = spec.get("doc_col")
+        if isinstance(doc_ref, int):
+            try:
+                doc_col = utils.resolve_column(df, doc_ref)
+                doc = df[doc_col].astype(str).str.strip()
+            except (IndexError, KeyError):
+                doc = pd.Series([str(name)] * len(df))
+        else:
+            doc = pd.Series([str(doc_ref) if doc_ref else str(name)] * len(df))
+
+        part = pd.DataFrame(
+            {"MST (chuẩn hóa)": mst.values, "Văn bản rủi ro": doc.values}
+        )
+        part = part[part["MST (chuẩn hóa)"] != ""]
+        frames.append(part)
+
+    if not frames:
+        return pd.DataFrame(columns=["MST (chuẩn hóa)", "Văn bản rủi ro"])
+
+    combined = pd.concat(frames, ignore_index=True)
     # gộp nhiều văn bản của cùng 1 MST
     out = (
-        out.groupby("MST (chuẩn hóa)")["Văn bản rủi ro"]
-        .apply(lambda s: "; ".join(sorted(set(v for v in s if v and v != "nan"))))
+        combined.groupby("MST (chuẩn hóa)")["Văn bản rủi ro"]
+        .apply(lambda s: "; ".join(sorted(set(v for v in s if v and v.lower() != "nan"))))
         .reset_index()
     )
     return out
