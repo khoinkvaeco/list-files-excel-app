@@ -53,10 +53,39 @@ Trình duyệt sẽ mở giao diện. Các bước sử dụng:
 
 Vị trí cột mặc định được khai báo trong `config.py`. Quy ước:
 
-- **Số nguyên** → vị trí cột đếm từ 1 (vd `42` = cột thứ 42 trong file TMS).
+- **Số nguyên** → vị trí cột đếm từ 1 (vd `9` = cột thứ 9).
 - **Chuỗi** → khớp theo tên tiêu đề cột (không phân biệt hoa/thường, khớp gần đúng).
 
-Tất cả vị trí này cũng chỉnh được trực tiếp trên giao diện web mà không cần sửa code.
+Mặc định đã căn theo bộ file thực tế:
+
+**File dữ liệu chính (Bảng kê hóa đơn mua vào):** tiêu đề ở dòng 9–10, dữ liệu từ dòng 11 (`header_row = 10`).
+
+| Trường | Cột | Nội dung |
+|--------|-----|----------|
+| MST người bán | 9 | Mã số thuế người bán |
+| Số hóa đơn | 5 | Số HĐ (bản có số 0 đầu) |
+| Ngày hóa đơn | 7 | Ngày, tháng, năm |
+| Giá trị chưa thuế | 14 | Giá trị HHDV mua vào chưa có thuế GTGT |
+| Thuế GTGT | 17 | Tiền thuế GTGT |
+| Tên hàng hóa | 10 | Tên hàng hóa, dịch vụ |
+
+**File DS rủi ro:** hỗ trợ **nhiều sheet** khác cấu trúc; mỗi sheet khai báo `name`,
+`header_row`, `mst_col`, `doc_col` (`doc_col` là **số** → lấy văn bản theo dòng; là
+**chữ** → gán nhãn văn bản cố định cho cả sheet, dùng khi văn bản nằm ở tên/tiêu đề sheet).
+
+**File HĐĐT:** khớp theo **tên cột** (export chuẩn `hoadondientu.gdt.gov.vn`). Nếu file
+export bị rỗng (không có dòng dữ liệu), công cụ sẽ tự bỏ qua các bước tra HĐĐT và báo cảnh báo.
+
+Tất cả cấu hình này cũng chỉnh được trực tiếp trên giao diện web (thanh bên trái)
+mà không cần sửa code.
+
+> **Lưu ý tác vụ tìm HĐ trùng:** khóa trùng gồm *số HĐ + ngày + MST + giá trị chưa thuế*
+> đúng theo yêu cầu. Kết quả là **danh sách cần rà soát** (có thể gồm hóa đơn nhiều dòng
+> có cùng giá trị), người kiểm tra xác nhận lại trước khi kết luận.
+
+> **Lưu ý tác vụ mặt hàng nghi ngờ:** so khớp **giữ nguyên dấu tiếng Việt** để tránh
+> nhầm "tặng" (quà tặng) với "tầng/tăng". Nếu dữ liệu gõ không dấu, thêm biến thể không
+> dấu vào danh sách từ khóa trên giao diện.
 
 ## File mẫu để thử nghiệm
 

@@ -16,12 +16,15 @@ from tax_audit import mst, taxpayer, risk, goods, invoice, einvoice
 def run_pipeline(
     main_df: pd.DataFrame,
     tms_df: pd.DataFrame | None = None,
-    risk_df: pd.DataFrame | None = None,
+    risk_file=None,
     einv_df: pd.DataFrame | None = None,
     cfg=None,
 ) -> dict:
     """Chạy quy trình. File TMS/rủi ro/HĐĐT là tùy chọn — thiếu file nào
     thì bỏ qua các tác vụ tương ứng.
+
+    ``risk_file`` là ĐỐI TƯỢNG FILE (không phải DataFrame) vì danh sách rủi ro
+    gồm nhiều sheet cần đọc riêng.
 
     Trả về dict:
       {
@@ -56,10 +59,11 @@ def run_pipeline(
         summary["HĐ xuất sau ngày đóng trạng thái"] = len(after)
 
     # --- Tác vụ 6: dò danh sách rủi ro ---------------------------------
-    if risk_df is not None:
-        risk_lookup = risk.build_risk_lookup(risk_df, cfg.RISK)
+    if risk_file is not None:
+        risk_lookup = risk.build_risk_lookup(risk_file, cfg.RISK)
         data = risk.enrich_with_risk(data, risk_lookup)
         risky = risk.risky_invoices(data)
+        sheets["DS MST rủi ro"] = risk_lookup
         sheets["HĐ của DN rủi ro"] = risky
         summary["HĐ của DN có dấu hiệu rủi ro"] = len(risky)
 
@@ -84,7 +88,9 @@ def run_pipeline(
     summary["Dòng HĐ kê khai trùng"] = len(dups)
 
     # --- Tác vụ 10, 11, 12: tra HĐĐT -----------------------------------
-    if einv_df is not None:
+    # bỏ qua nếu file HĐĐT rỗng (không có dòng dữ liệu) để tránh gắn nhầm
+    # nhãn "không tìm thấy" cho toàn bộ hóa đơn.
+    if einv_df is not None and not einv_df.empty:
         einv_lookup = einvoice.build_einvoice_lookup(einv_df, cfg.EINVOICE)
         data = einvoice.enrich_with_einvoice(
             data,
