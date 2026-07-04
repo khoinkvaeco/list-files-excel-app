@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Dữ liệu / kết quả (không commit dữ liệu thật của người nộp thuế)
+uploads/
+outputs/
+*.xlsx
+*.xls
+*.csv
+!samples/*.xlsx
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
