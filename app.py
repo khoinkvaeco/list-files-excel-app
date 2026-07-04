@@ -7,6 +7,7 @@ Chạy:  streamlit run app.py
 from __future__ import annotations
 
 import copy
+import types
 
 import pandas as pd
 import streamlit as st
@@ -28,8 +29,20 @@ st.caption(
 # CẤU HÌNH CỘT (có thể chỉnh trực tiếp)
 # ---------------------------------------------------------------------------
 def build_runtime_config():
-    """Tạo bản sao config, cho phép người dùng chỉnh vị trí cột trên sidebar."""
-    cfg = copy.deepcopy(C)
+    """Tạo bản sao config, cho phép người dùng chỉnh vị trí cột trên sidebar.
+
+    Không deepcopy cả module ``config`` (module không thể copy/pickle) — chỉ sao
+    chép các giá trị dữ liệu cần thiết vào một namespace có thể chỉnh sửa.
+    """
+    cfg = types.SimpleNamespace(
+        MAIN=copy.deepcopy(C.MAIN),
+        TMS=copy.deepcopy(C.TMS),
+        RISK=copy.deepcopy(C.RISK),
+        EINVOICE=copy.deepcopy(C.EINVOICE),
+        GOODS_KEYWORDS=list(C.GOODS_KEYWORDS),
+        INVOICE_STATUS=copy.deepcopy(C.INVOICE_STATUS),
+        STATUS_NOT_FOUND=C.STATUS_NOT_FOUND,
+    )
 
     with st.sidebar:
         st.header("⚙️ Cấu hình cột")
