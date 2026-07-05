@@ -23,6 +23,13 @@ tiền thuế, v.v.
 | 12 | Tính **chênh lệch tiền thuế** = Tổng tiền thuế − Thuế GTGT | `tax_audit/einvoice.py` |
 | + | **Chuyển hóa đơn điện tử XML → Excel** (đọc XML chuẩn TCT, xuất bảng hóa đơn + chi tiết hàng hóa) | `tax_audit/xml_invoice.py` |
 
+### File Excel kết quả gồm các sheet
+- **KQ rà soát** — tổng hợp: tổng chưa thuế, tổng thuế GTGT của bảng kê + số lượng từng loại cảnh báo (giống sheet KQ rà BKMV).
+- **Bảng kê đã xử lý** — cột A–T gốc + 9 cột kết quả **U–AC** tự điền: Loại hàng hóa (nghi ngờ), Trạng thái NNT, Ngày liên quan, Hóa đơn rủi ro, Kê khai trùng, Tra HĐĐT, Tiền thuế trên HĐĐT, Chênh lệch với BK, Check 10%/8%.
+- **Dữ liệu tổng hợp** và các sheet cảnh báo riêng (mặt hàng nghi ngờ, HĐ trùng, HĐ sai trạng thái, Đối chiếu thuế theo HĐ, Chênh lệch tiền thuế…).
+
+> Công cụ tự bỏ dòng "Tổng cộng"/dòng trống cuối bảng kê (không có MST và số HĐ) để tổng tiền thuế khớp đúng số liệu gốc.
+
 Giao diện có 2 tab: **🔍 Kiểm tra bảng kê** và **🔄 XML hóa đơn → Excel**. Tab XML
 cho phép tải nhiều file XML hóa đơn điện tử cùng lúc, trích xuất thành Excel (bảng
 hóa đơn + chi tiết hàng hóa); file này dùng luôn được làm *File hóa đơn điện tử* ở
