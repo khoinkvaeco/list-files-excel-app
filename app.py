@@ -151,6 +151,20 @@ def _default_sheet_index(sheets: list[str]) -> int:
     return 0
 
 
+def show_df(df, n: int = 500):
+    """Hiển thị bảng an toàn với Arrow: ép tên cột & các cột hỗn hợp về chuỗi.
+
+    Tránh lỗi 'Could not convert ... to int64' khi cột có kiểu dữ liệu lẫn lộn
+    (ví dụ số hóa đơn '01GTKT0/005' lẫn số) và cảnh báo tên cột hỗn hợp kiểu.
+    """
+    d = df.head(n).copy()
+    d.columns = [str(c) for c in d.columns]
+    for c in d.columns:
+        if d[c].dtype == object:
+            d[c] = d[c].map(lambda x: "" if pd.isna(x) else str(x))
+    st.dataframe(d, width="stretch")
+
+
 # ---------------------------------------------------------------------------
 # TAB 1: KIỂM TRA BẢNG KÊ
 # ---------------------------------------------------------------------------
@@ -247,7 +261,7 @@ def render_audit(cfg):
             with tab:
                 df = sheets[name]
                 st.caption(f"{len(df):,} dòng")
-                st.dataframe(df.head(500), use_container_width=True)
+                show_df(df)
     else:
         st.info("Tải file dữ liệu chính và nhấn **Bắt đầu kiểm tra** để xem kết quả.")
 
@@ -286,7 +300,7 @@ def render_xml_converter():
         # nếu chỉ có cột lỗi -> báo lỗi cụ thể
         if set(df_inv.columns) <= {"File nguồn", "Lỗi"} and "Lỗi" in df_inv.columns:
             st.error("Không đọc được file XML:")
-            st.dataframe(df_inv, use_container_width=True)
+            show_df(df_inv)
             st.stop()
 
         st.session_state["xml_result"] = (df_inv, df_items)
@@ -312,10 +326,10 @@ def render_xml_converter():
 
         st.markdown("#### Xem trước")
         st.markdown("**Bảng hóa đơn**")
-        st.dataframe(df_inv.head(500), use_container_width=True)
+        show_df(df_inv)
         if not df_items.empty:
             st.markdown("**Chi tiết hàng hóa**")
-            st.dataframe(df_items.head(500), use_container_width=True)
+            show_df(df_items)
 
 
 # ---------------------------------------------------------------------------
