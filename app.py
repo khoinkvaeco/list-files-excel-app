@@ -278,7 +278,13 @@ def render_xml_converter():
             st.stop()
 
         if df_inv.empty:
-            st.warning("Không trích xuất được hóa đơn nào từ các file XML đã tải.")
+            st.warning("Không trích xuất được dữ liệu nào từ các file XML đã tải.")
+            st.stop()
+
+        # nếu chỉ có cột lỗi -> báo lỗi cụ thể
+        if set(df_inv.columns) <= {"File nguồn", "Lỗi"} and "Lỗi" in df_inv.columns:
+            st.error("Không đọc được file XML:")
+            st.dataframe(df_inv, use_container_width=True)
             st.stop()
 
         st.session_state["xml_result"] = (df_inv, df_items)
