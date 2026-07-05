@@ -49,7 +49,8 @@ def build_runtime_config():
     with st.sidebar:
         st.header("⚙️ Cấu hình cột")
         st.caption(
-            "Nhập TÊN cột hoặc SỐ THỨ TỰ cột (đếm từ 1). "
+            "Nhập **chữ cái cột Excel** (A, B, C, … như trên thanh cột Excel). "
+            "Cũng chấp nhận số thứ tự cột hoặc tên tiêu đề. "
             "Để mặc định nếu file đúng bố cục chuẩn."
         )
 
@@ -70,10 +71,10 @@ def build_runtime_config():
         with st.expander("File TMS", expanded=False):
             cfg.TMS["mst_col"] = _col_input("tms_mst", "Cột MST", C.TMS["mst_col"])
             cfg.TMS["status_col"] = _col_input(
-                "tms_status", "Cột trạng thái NNT (mặc định 42)", C.TMS["status_col"]
+                "tms_status", "Cột trạng thái NNT (mặc định AS)", C.TMS["status_col"]
             )
             cfg.TMS["close_date_col"] = _col_input(
-                "tms_close", "Cột ngày đóng trạng thái (mặc định 51)", C.TMS["close_date_col"]
+                "tms_close", "Cột ngày đóng trạng thái (mặc định BB)", C.TMS["close_date_col"]
             )
             cfg.TMS["header_row"] = st.number_input(
                 "Dòng tiêu đề (TMS)", 1, 50, C.TMS["header_row"], key="tms_hdr"

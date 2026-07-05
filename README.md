@@ -66,25 +66,30 @@ Trình duyệt sẽ mở giao diện. Các bước sử dụng:
 
 Vị trí cột mặc định được khai báo trong `config.py`. Quy ước:
 
-- **Số nguyên** → vị trí cột đếm từ 1 (vd `9` = cột thứ 9).
-- **Chuỗi** → khớp theo tên tiêu đề cột (không phân biệt hoa/thường, khớp gần đúng).
+- **Chữ cái cột Excel** → `"A"`, `"B"`, `"L"`, `"AA"`… đúng như chữ cái cột hiển thị trên Excel (dễ đối chiếu/sửa nhất).
+- **Số nguyên** → vị trí cột đếm từ 1 (vd `12` = cột thứ 12).
+- **Chuỗi khác** → khớp theo tên tiêu đề cột (khớp gần đúng).
 
 Mặc định đã căn theo bộ file thực tế:
 
-**File dữ liệu chính (Bảng kê hóa đơn mua vào):** tiêu đề ở dòng 9–10, dữ liệu từ dòng 11 (`header_row = 10`).
+**File dữ liệu chính (Bảng kê 01-1/HT):** dữ liệu ở sheet `BKMV`, tiêu đề dòng 10–11, dữ liệu từ dòng 12 (`header_row = 11`).
 
-| Trường | Cột | Nội dung |
+| Trường | Cột Excel | Nội dung |
 |--------|-----|----------|
-| MST người bán | 9 | Mã số thuế người bán |
-| Số hóa đơn | 5 | Số HĐ (bản có số 0 đầu) |
-| Ngày hóa đơn | 7 | Ngày, tháng, năm |
-| Giá trị chưa thuế | 14 | Giá trị HHDV mua vào chưa có thuế GTGT |
-| Thuế GTGT | 17 | Tiền thuế GTGT |
-| Tên hàng hóa | 10 | Tên hàng hóa, dịch vụ |
+| MST người bán | L | Mã số thuế người bán |
+| Số hóa đơn | F | Số hóa đơn |
+| Ngày hóa đơn | G | Ngày, tháng, năm |
+| Giá trị chưa thuế | Q | Giá trị HHDV mua vào chưa có thuế GTGT |
+| Thuế GTGT | S | Tiền thuế GTGT |
+| Tên hàng hóa | M | Tên hàng hóa, dịch vụ |
+
+**File TMS (Danh bạ NNT):** SpreadsheetML, sheet `NNT`, `header_row = 2`; MST cột **D**, Trạng thái tổ chức cột **AS**, Ngày đóng trạng thái cột **BB**.
+
+**File HĐĐT:** sheet `DanhSach`, `header_row = 4`; MST người bán **G**, Số HĐ **D**, Ngày lập **E**, Trạng thái **S**, Tổng tiền thuế **M**.
 
 **File DS rủi ro:** hỗ trợ **nhiều sheet** khác cấu trúc; mỗi sheet khai báo `name`,
-`header_row`, `mst_col`, `doc_col` (`doc_col` là **số** → lấy văn bản theo dòng; là
-**chữ** → gán nhãn văn bản cố định cho cả sheet, dùng khi văn bản nằm ở tên/tiêu đề sheet).
+`header_row`, `mst_col`, `doc_col` (`doc_col` là **chữ cái cột** → lấy văn bản theo dòng;
+là **chuỗi khác** (có dấu cách/số) → gán nhãn văn bản cố định cho cả sheet).
 
 **File HĐĐT:** khớp theo **tên cột** (export chuẩn `hoadondientu.gdt.gov.vn`). Nếu file
 export bị rỗng (không có dòng dữ liệu), công cụ sẽ tự bỏ qua các bước tra HĐĐT và báo cảnh báo.
