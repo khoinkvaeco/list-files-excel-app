@@ -25,7 +25,7 @@ tiền thuế, v.v.
 
 ### File Excel kết quả gồm các sheet
 - **KQ rà soát** — tổng hợp: tổng chưa thuế, tổng thuế GTGT của bảng kê + số lượng từng loại cảnh báo (giống sheet KQ rà BKMV).
-- **Bảng kê đã xử lý** — cột A–T gốc + 9 cột kết quả **U–AC** tự điền: Loại hàng hóa (nghi ngờ), Trạng thái NNT, Ngày liên quan, Hóa đơn rủi ro, Kê khai trùng, Tra HĐĐT, Tiền thuế trên HĐĐT, Chênh lệch với BK, Check 10%/8%.
+- **Bảng kê đã xử lý** — cột A–T gốc + 9 cột kết quả **U–AC** tự điền: Loại hàng hóa (nghi ngờ), Trạng thái NNT, Ngày liên quan, Hóa đơn rủi ro, Kê khai trùng, Tra HĐĐT, Tiền thuế trên HĐĐT, **Chênh lệch với BK (AB = AA − S)**, **Check 10%/8%** (đối chiếu thuế suất thực tế với chính sách giảm 8% theo ngày hóa đơn — NĐ 15/2022, 44/2023, 94/2023, 72/2024, 174/2024).
 - **Dữ liệu tổng hợp** và các sheet cảnh báo riêng (mặt hàng nghi ngờ, HĐ trùng, HĐ sai trạng thái, Đối chiếu thuế theo HĐ, Chênh lệch tiền thuế…).
 
 > Công cụ tự bỏ dòng "Tổng cộng"/dòng trống cuối bảng kê (không có MST và số HĐ) để tổng tiền thuế khớp đúng số liệu gốc.

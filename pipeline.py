@@ -152,15 +152,53 @@ def run_pipeline(
     return {"data": data, "sheets": ordered, "summary": summary}
 
 
-def _rate_label(pretax_val: float, vat_val: float) -> str:
-    """Suy ra thuế suất từ (tiền thuế / giá trị chưa thuế) -> nhãn 10%/8%/5%..."""
+# Các giai đoạn được giảm thuế GTGT 10% -> 8% (đã gộp khoảng liền kề).
+# Ngoài các khoảng này, thuế suất phổ thông là 10%.
+VAT_REDUCED_PERIODS = [
+    ("2022-02-01", "2022-12-31"),  # NĐ 15/2022
+    ("2023-07-01", "2023-12-31"),  # NĐ 44/2023
+    ("2024-01-01", "2024-12-31"),  # NĐ 94/2023 + NĐ 72/2024
+    ("2025-07-01", "2026-12-31"),  # NĐ 174/2024 (174/2025)
+]
+
+
+def _infer_rate(pretax_val: float, vat_val: float):
+    """Suy ra thuế suất từ (tiền thuế / giá trị chưa thuế). None nếu không rõ."""
     if not pretax_val:
-        return ""
+        return None
     r = vat_val / pretax_val
-    for target, txt in ((0.10, "10%"), (0.08, "8%"), (0.05, "5%"), (0.0, "0%")):
+    for target in (0.10, 0.08, 0.05, 0.0):
         if abs(r - target) < 0.005:
-            return txt
-    return f"{r * 100:.1f}%"
+            return target
+    return round(r, 4)
+
+
+def _in_reduced_period(ts) -> bool:
+    import pandas as _pd
+
+    if ts is None or _pd.isna(ts):
+        return False
+    for start, end in VAT_REDUCED_PERIODS:
+        if _pd.Timestamp(start) <= ts <= _pd.Timestamp(end):
+            return True
+    return False
+
+
+def _vat_policy_check(ts, pretax_val: float, vat_val: float) -> str:
+    """Đối chiếu thuế suất thực tế với chính sách giảm 8% theo ngày hóa đơn."""
+    rate = _infer_rate(pretax_val, vat_val)
+    if rate is None:
+        return ""
+    reduced = _in_reduced_period(ts)
+    if abs(rate - 0.10) < 0.005:
+        return "10% - rà lại (đang kỳ giảm 8%)" if reduced else "10% - đúng"
+    if abs(rate - 0.08) < 0.005:
+        return "8% - đúng kỳ giảm" if reduced else "8% - NGOÀI kỳ giảm (?)"
+    if abs(rate - 0.05) < 0.005:
+        return "5%"
+    if abs(rate - 0.0) < 0.005:
+        return "0% / không thuế"
+    return f"{rate * 100:.1f}% - khác"
 
 
 def _build_processed_sheet(data, main_cols, reconciled):
@@ -196,21 +234,23 @@ def _build_processed_sheet(data, main_cols, reconciled):
     tra_hddt = col("Nhóm trạng thái")
     # AA (27): tiền thuế trên HĐĐT
     tien_thue_hddt = col("Tổng tiền thuế (HĐĐT)")
-    # AB (28): Chênh lệch với BK (theo hóa đơn)
-    chenh_lech = pd.Series([pd.NA] * n, index=data.index)
-    if reconciled is not None and not reconciled.empty:
-        date_col = _u.resolve_column(data, main_cols["invoice_date"])
-        key = pd.DataFrame({
-            "MST (chuẩn hóa)": col("MST (chuẩn hóa)"),
-            "Số HĐ (bỏ 0 đầu)": col("Số HĐ (bỏ 0 đầu)"),
-            "Ngày HĐ": _u.parse_date(data[date_col]).dt.strftime("%Y-%m-%d"),
-        })
-        rc = reconciled[["MST (chuẩn hóa)", "Số HĐ (bỏ 0 đầu)", "Ngày HĐ", "Chênh lệch tiền thuế"]]
-        merged = key.merge(rc, on=["MST (chuẩn hóa)", "Số HĐ (bỏ 0 đầu)", "Ngày HĐ"], how="left")
-        chenh_lech = merged["Chênh lệch tiền thuế"].values
-    # AC (29): check 10%, 8% (thuế suất suy ra từ dữ liệu)
+    aa = _u.parse_amount_series(tien_thue_hddt) if "Tổng tiền thuế (HĐĐT)" in data.columns else None
+
+    # AB (28): Chênh lệch với BK = AA - S (tiền thuế HĐĐT - tiền thuế GTGT bảng kê)
+    if aa is not None and "Tổng tiền thuế (HĐĐT)" in data.columns:
+        raw = data["Tổng tiền thuế (HĐĐT)"]
+        chenh_lech = (aa.values - vatv.values)
+        # để trống khi không tra được HĐ trên HĐĐT
+        chenh_lech = pd.Series(chenh_lech, index=data.index).where(raw.notna().values, pd.NA)
+    else:
+        chenh_lech = pd.Series([pd.NA] * n, index=data.index)
+
+    # AC (29): check 10%, 8% theo chính sách giảm thuế + ngày hóa đơn
+    date_col = _u.resolve_column(data, main_cols["invoice_date"])
+    inv_dates = _u.parse_date(data[date_col])
     check_rate = [
-        _rate_label(p, v) for p, v in zip(pre.tolist(), vatv.tolist())
+        _vat_policy_check(d, p, v)
+        for d, p, v in zip(inv_dates.tolist(), pre.tolist(), vatv.tolist())
     ]
 
     result = pd.DataFrame({
