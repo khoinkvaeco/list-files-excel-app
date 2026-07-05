@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HDon>
+  <DLHDon>
+    <TTChung>
+      <KHMSHDon>1</KHMSHDon><KHHDon>C22TBB</KHHDon><SHDon>0000046</SHDon><NLap>2022-06-01</NLap>
+    </TTChung>
+    <NDHDon>
+      <NBan><Ten>CÔNG TY GOLF</Ten><MST>0313025323</MST></NBan>
+      <NMua><Ten>CÔNG TY OBAYASHI VIỆT NAM</Ten><MST>0304436870</MST></NMua>
+      <DSHHDVu>
+        <HHDVu><STT>1</STT><THHDVu>Bộ gậy chơi golf</THHDVu><DVTinh>bộ</DVTinh><SLuong>1</SLuong><DGia>2000000</DGia><ThTien>2000000</ThTien><TSuat>10%</TSuat></HHDVu>
+      </DSHHDVu>
+      <TToan><TgTCThue>2000000</TgTCThue><TgTThue>200000</TgTThue><TgTTTBSo>2200000</TgTTTBSo></TToan>
+    </NDHDon>
+  </DLHDon>
+</HDon>

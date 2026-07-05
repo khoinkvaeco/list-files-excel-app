@@ -8,4 +8,5 @@ __all__ = [
     "goods",
     "invoice",
     "einvoice",
+    "xml_invoice",
 ]
