@@ -21,6 +21,12 @@ tiền thuế, v.v.
 | 10 | Tra **file hóa đơn điện tử** → trạng thái + tổng tiền thuế | `tax_audit/einvoice.py` |
 | 11 | Phân loại HĐ **bị thay thế / xóa bỏ / không tìm thấy** | `tax_audit/einvoice.py` |
 | 12 | Tính **chênh lệch tiền thuế** = Tổng tiền thuế − Thuế GTGT | `tax_audit/einvoice.py` |
+| + | **Chuyển hóa đơn điện tử XML → Excel** (đọc XML chuẩn TCT, xuất bảng hóa đơn + chi tiết hàng hóa) | `tax_audit/xml_invoice.py` |
+
+Giao diện có 2 tab: **🔍 Kiểm tra bảng kê** và **🔄 XML hóa đơn → Excel**. Tab XML
+cho phép tải nhiều file XML hóa đơn điện tử cùng lúc, trích xuất thành Excel (bảng
+hóa đơn + chi tiết hàng hóa); file này dùng luôn được làm *File hóa đơn điện tử* ở
+tab kiểm tra.
 
 > **Lưu ý về tra cứu online:** Công cụ **không đăng nhập trực tiếp** vào hệ thống
 > TMS hay hệ thống hóa đơn điện tử của cơ quan thuế (việc đó cần tài khoản/chữ ký

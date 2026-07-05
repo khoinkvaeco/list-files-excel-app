@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import config as C
-from tax_audit import utils
+from tax_audit import utils, xml_invoice
 from pipeline import run_pipeline
 
 st.set_page_config(page_title="Công cụ kiểm tra thuế", page_icon="📊", layout="wide")
@@ -134,103 +134,165 @@ def _col_input(key: str, label: str, default):
     return raw
 
 
-# ---------------------------------------------------------------------------
-# TẢI FILE
-# ---------------------------------------------------------------------------
-cfg = build_runtime_config()
-
-st.subheader("1️⃣ Tải file lên")
-col1, col2 = st.columns(2)
-with col1:
-    main_file = st.file_uploader(
-        "📄 File dữ liệu chính (bảng kê hóa đơn cần kiểm tra) — bắt buộc",
-        type=["xlsx", "xls", "csv"],
-    )
-    tms_file = st.file_uploader(
-        "🏢 File TMS (trạng thái người nộp thuế) — tùy chọn",
-        type=["xlsx", "xls", "csv"],
-    )
-with col2:
-    risk_file = st.file_uploader(
-        "⚠️ File danh sách DN có dấu hiệu rủi ro — tùy chọn",
-        type=["xlsx", "xls", "csv"],
-    )
-    einv_file = st.file_uploader(
-        "🧾 File hóa đơn điện tử — tùy chọn",
-        type=["xlsx", "xls", "csv"],
-    )
-
-
 def _load(file, header_row):
     if file is None:
         return None
     return utils.read_excel(file, header_row=header_row)
 
 
-st.subheader("2️⃣ Chạy kiểm tra")
-if st.button("▶️ Bắt đầu kiểm tra", type="primary", disabled=main_file is None):
-    if main_file is None:
-        st.warning("Vui lòng tải lên file dữ liệu chính.")
-        st.stop()
-
-    try:
-        main_df = _load(main_file, cfg.MAIN["header_row"])
-        tms_df = _load(tms_file, cfg.TMS["header_row"])
-        einv_df = _load(einv_file, cfg.EINVOICE["header_row"])
-    except Exception as e:  # noqa: BLE001
-        st.error(f"Lỗi khi đọc file: {e}")
-        st.stop()
-
-    if einv_file is not None and (einv_df is None or einv_df.empty):
-        st.warning(
-            "⚠️ File hóa đơn điện tử không có dữ liệu (rỗng) — bỏ qua các bước tra "
-            "trạng thái HĐ và chênh lệch thuế. Vui lòng export lại file HĐĐT."
+# ---------------------------------------------------------------------------
+# TAB 1: KIỂM TRA BẢNG KÊ
+# ---------------------------------------------------------------------------
+def render_audit(cfg):
+    st.subheader("1️⃣ Tải file lên")
+    col1, col2 = st.columns(2)
+    with col1:
+        main_file = st.file_uploader(
+            "📄 File dữ liệu chính (bảng kê hóa đơn cần kiểm tra) — bắt buộc",
+            type=["xlsx", "xls", "csv"],
+        )
+        tms_file = st.file_uploader(
+            "🏢 File TMS (trạng thái người nộp thuế) — tùy chọn",
+            type=["xlsx", "xls", "csv"],
+        )
+    with col2:
+        risk_file = st.file_uploader(
+            "⚠️ File danh sách DN có dấu hiệu rủi ro — tùy chọn",
+            type=["xlsx", "xls", "csv"],
+        )
+        einv_file = st.file_uploader(
+            "🧾 File hóa đơn điện tử — tùy chọn (có thể tạo từ tab XML → Excel)",
+            type=["xlsx", "xls", "csv"],
         )
 
-    try:
-        # danh sách rủi ro gồm nhiều sheet -> truyền thẳng file
-        result = run_pipeline(main_df, tms_df, risk_file, einv_df, cfg=cfg)
-    except Exception as e:  # noqa: BLE001
-        st.error(f"Lỗi trong quá trình xử lý: {e}")
-        st.exception(e)
-        st.stop()
+    st.subheader("2️⃣ Chạy kiểm tra")
+    if st.button("▶️ Bắt đầu kiểm tra", type="primary", disabled=main_file is None):
+        if main_file is None:
+            st.warning("Vui lòng tải lên file dữ liệu chính.")
+            st.stop()
 
-    st.session_state["result"] = result
+        try:
+            main_df = _load(main_file, cfg.MAIN["header_row"])
+            tms_df = _load(tms_file, cfg.TMS["header_row"])
+            einv_df = _load(einv_file, cfg.EINVOICE["header_row"])
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Lỗi khi đọc file: {e}")
+            st.stop()
+
+        if einv_file is not None and (einv_df is None or einv_df.empty):
+            st.warning(
+                "⚠️ File hóa đơn điện tử không có dữ liệu (rỗng) — bỏ qua các bước tra "
+                "trạng thái HĐ và chênh lệch thuế. Vui lòng export lại file HĐĐT."
+            )
+
+        try:
+            # danh sách rủi ro gồm nhiều sheet -> truyền thẳng file
+            result = run_pipeline(main_df, tms_df, risk_file, einv_df, cfg=cfg)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Lỗi trong quá trình xử lý: {e}")
+            st.exception(e)
+            st.stop()
+
+        st.session_state["result"] = result
+
+    if "result" in st.session_state:
+        result = st.session_state["result"]
+        summary = result["summary"]
+        sheets = result["sheets"]
+
+        st.subheader("3️⃣ Kết quả")
+        if summary:
+            cols = st.columns(min(len(summary), 4))
+            for i, (k, v) in enumerate(summary.items()):
+                cols[i % len(cols)].metric(k, v)
+
+        excel_bytes = utils.to_excel_bytes(sheets)
+        st.download_button(
+            "⬇️ Tải file Excel kết quả (nhiều sheet)",
+            data=excel_bytes,
+            file_name="ket_qua_kiem_tra_thue.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+
+        st.markdown("#### Xem trước các sheet kết quả")
+        tab_names = list(sheets.keys())
+        tabs = st.tabs(tab_names)
+        for tab, name in zip(tabs, tab_names):
+            with tab:
+                df = sheets[name]
+                st.caption(f"{len(df):,} dòng")
+                st.dataframe(df.head(500), use_container_width=True)
+    else:
+        st.info("Tải file dữ liệu chính và nhấn **Bắt đầu kiểm tra** để xem kết quả.")
+
 
 # ---------------------------------------------------------------------------
-# HIỂN THỊ KẾT QUẢ
+# TAB 2: CHUYỂN XML HÓA ĐƠN -> EXCEL
 # ---------------------------------------------------------------------------
-if "result" in st.session_state:
-    result = st.session_state["result"]
-    summary = result["summary"]
-    sheets = result["sheets"]
-
-    st.subheader("3️⃣ Kết quả")
-
-    # bảng chỉ tiêu tổng hợp
-    if summary:
-        cols = st.columns(min(len(summary), 4))
-        for i, (k, v) in enumerate(summary.items()):
-            cols[i % len(cols)].metric(k, v)
-
-    # tải file kết quả
-    excel_bytes = utils.to_excel_bytes(sheets)
-    st.download_button(
-        "⬇️ Tải file Excel kết quả (nhiều sheet)",
-        data=excel_bytes,
-        file_name="ket_qua_kiem_tra_thue.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
+def render_xml_converter():
+    st.subheader("Chuyển hóa đơn điện tử XML → Excel")
+    st.caption(
+        "Tải lên một hoặc nhiều file XML hóa đơn điện tử (chuẩn Tổng cục Thuế). "
+        "Công cụ trích xuất thành bảng Excel; có thể dùng luôn làm *File hóa đơn "
+        "điện tử* ở tab Kiểm tra bảng kê."
     )
 
-    # xem trước từng sheet
-    st.markdown("#### Xem trước các sheet kết quả")
-    tab_names = list(sheets.keys())
-    tabs = st.tabs(tab_names)
-    for tab, name in zip(tabs, tab_names):
-        with tab:
-            df = sheets[name]
-            st.caption(f"{len(df):,} dòng")
-            st.dataframe(df.head(500), use_container_width=True)
-else:
-    st.info("Tải file dữ liệu chính và nhấn **Bắt đầu kiểm tra** để xem kết quả.")
+    xml_files = st.file_uploader(
+        "📎 File XML hóa đơn (chọn nhiều file cùng lúc)",
+        type=["xml"],
+        accept_multiple_files=True,
+    )
+
+    if st.button(
+        "🔄 Chuyển sang Excel", type="primary", disabled=not xml_files
+    ):
+        try:
+            df_inv, df_items = xml_invoice.parse_files(xml_files)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Lỗi khi đọc XML: {e}")
+            st.exception(e)
+            st.stop()
+
+        if df_inv.empty:
+            st.warning("Không trích xuất được hóa đơn nào từ các file XML đã tải.")
+            st.stop()
+
+        st.session_state["xml_result"] = (df_inv, df_items)
+
+    if "xml_result" in st.session_state:
+        df_inv, df_items = st.session_state["xml_result"]
+
+        c1, c2 = st.columns(2)
+        c1.metric("Số hóa đơn đọc được", len(df_inv))
+        c2.metric("Số dòng hàng hóa", len(df_items))
+
+        sheets = {"Hóa đơn": df_inv}
+        if not df_items.empty:
+            sheets["Chi tiết hàng hóa"] = df_items
+        excel_bytes = utils.to_excel_bytes(sheets)
+        st.download_button(
+            "⬇️ Tải file Excel hóa đơn",
+            data=excel_bytes,
+            file_name="hoa_don_dien_tu_tu_xml.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+
+        st.markdown("#### Xem trước")
+        st.markdown("**Bảng hóa đơn**")
+        st.dataframe(df_inv.head(500), use_container_width=True)
+        if not df_items.empty:
+            st.markdown("**Chi tiết hàng hóa**")
+            st.dataframe(df_items.head(500), use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
+# ĐIỀU HƯỚNG
+# ---------------------------------------------------------------------------
+cfg = build_runtime_config()
+tab_audit, tab_xml = st.tabs(["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel"])
+with tab_audit:
+    render_audit(cfg)
+with tab_xml:
+    render_xml_converter()
