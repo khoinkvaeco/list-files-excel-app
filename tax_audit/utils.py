@@ -30,6 +30,10 @@ def read_excel(file, header_row: int = 1, sheet_name=0) -> pd.DataFrame:
         _rewind(file)
         return pd.read_csv(file, header=header_row - 1, dtype=str, keep_default_na=False)
 
+    # SpreadsheetML (Excel 2003 XML) — nhiều file .xls từ TMS/eTax ở định dạng này
+    if _is_spreadsheetml(file):
+        return _read_spreadsheetml(file, header_row, sheet_name)
+
     engines = _engine_candidates(name)
     last_err = None
     for engine in engines:
@@ -57,6 +61,10 @@ def read_excel(file, header_row: int = 1, sheet_name=0) -> pd.DataFrame:
 def list_sheets(file) -> list[str]:
     """Trả về danh sách tên sheet của file Excel (chịu nhiều định dạng)."""
     name = getattr(file, "name", str(file)).lower()
+    if name.endswith(".csv"):
+        return ["Sheet1"]
+    if _is_spreadsheetml(file):
+        return _spreadsheetml_sheets(file)
     for engine in _engine_candidates(name):
         try:
             _rewind(file)
@@ -65,6 +73,119 @@ def list_sheets(file) -> list[str]:
             continue
     # HTML-"xls": không có khái niệm sheet, đặt tên mặc định
     return ["Sheet1"]
+
+
+# ---------------------------------------------------------------------------
+# SpreadsheetML (Excel 2003 XML)
+# ---------------------------------------------------------------------------
+_SSML_NS = "{urn:schemas-microsoft-com:office:spreadsheet}"
+
+
+def _read_all_bytes(file) -> bytes:
+    _rewind(file)
+    if hasattr(file, "read"):
+        data = file.read()
+        _rewind(file)
+        return data if isinstance(data, bytes) else data.encode("utf-8", "ignore")
+    with open(file, "rb") as fh:
+        return fh.read()
+
+
+def _is_spreadsheetml(file) -> bool:
+    """Nhận biết file định dạng SpreadsheetML qua vài KB đầu."""
+    try:
+        _rewind(file)
+        if hasattr(file, "read"):
+            head = file.read(4096)
+            _rewind(file)
+            if isinstance(head, str):
+                head = head.encode("utf-8", "ignore")
+        else:
+            with open(file, "rb") as fh:
+                head = fh.read(4096)
+    except Exception:  # noqa: BLE001
+        return False
+    return b"urn:schemas-microsoft-com:office:spreadsheet" in head
+
+
+def _spreadsheetml_worksheets(root):
+    return list(root.iter(_SSML_NS + "Worksheet"))
+
+
+def _spreadsheetml_sheets(file) -> list[str]:
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(_read_all_bytes(file))
+    names = [w.get(_SSML_NS + "Name") or f"Sheet{i+1}"
+             for i, w in enumerate(_spreadsheetml_worksheets(root))]
+    return names or ["Sheet1"]
+
+
+def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
+    """Đọc 1 sheet của file SpreadsheetML thành DataFrame (giữ đúng vị trí cột)."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(_read_all_bytes(file))
+    worksheets = _spreadsheetml_worksheets(root)
+    if not worksheets:
+        raise ValueError("Không tìm thấy worksheet trong file SpreadsheetML.")
+
+    chosen = None
+    if isinstance(sheet_name, str):
+        for w in worksheets:
+            if (w.get(_SSML_NS + "Name") or "") == sheet_name:
+                chosen = w
+                break
+    elif isinstance(sheet_name, int) and 0 <= sheet_name < len(worksheets):
+        chosen = worksheets[sheet_name]
+    chosen = chosen or worksheets[0]
+
+    table = chosen.find(_SSML_NS + "Table")
+    if table is None:
+        return pd.DataFrame()
+
+    rows = []
+    max_col = 0
+    for r in table.findall(_SSML_NS + "Row"):
+        cells = {}
+        c = 0
+        for cell in r.findall(_SSML_NS + "Cell"):
+            idx = cell.get(_SSML_NS + "Index")
+            c = int(idx) if idx else c + 1
+            data_el = cell.find(_SSML_NS + "Data")
+            cells[c] = data_el.text if (data_el is not None and data_el.text is not None) else ""
+            merge = cell.get(_SSML_NS + "MergeAcross")
+            if merge:
+                c += int(merge)
+        rows.append(cells)
+        if cells:
+            max_col = max(max_col, max(cells))
+
+    matrix = [[row.get(c, None) for c in range(1, max_col + 1)] for row in rows]
+    if not matrix:
+        return pd.DataFrame()
+
+    hidx = header_row - 1
+    if hidx >= len(matrix):
+        raise IndexError(f"Dòng tiêu đề {header_row} vượt quá số dòng của sheet.")
+    header = [("" if h is None else str(h)) for h in matrix[hidx]]
+    data = matrix[hidx + 1:]
+    return pd.DataFrame(data, columns=_dedupe_columns(header)).astype(object)
+
+
+def _dedupe_columns(names: list[str]) -> list[str]:
+    """Bảo đảm tên cột không trùng/không rỗng (giống cách pandas xử lý)."""
+    seen: dict[str, int] = {}
+    out = []
+    for i, n in enumerate(names):
+        base = n if n.strip() else f"Unnamed: {i}"
+        if base in seen:
+            seen[base] += 1
+            out.append(f"{base}.{seen[base]}")
+        else:
+            seen[base] = 0
+            out.append(base)
+    return out
 
 
 def _engine_candidates(name: str) -> list[str]:
@@ -225,14 +346,25 @@ def strip_leading_zeros_series(s: pd.Series) -> pd.Series:
 def parse_date(value):
     """Chuyển giá trị về pandas Timestamp; lỗi trả về NaT.
 
-    Ưu tiên định dạng ngày kiểu Việt Nam (dd/mm/yyyy) qua ``dayfirst=True``,
-    đồng thời bỏ qua cảnh báo khi gặp chuỗi ISO đã rõ định dạng.
+    Nhận diện đồng thời hai kiểu ngày:
+      - ISO / có năm ở đầu (yyyy-mm-dd, yyyy/mm/dd, kèm giờ)  -> dayfirst=False
+      - Kiểu Việt Nam (dd/mm/yyyy, dd-mm-yyyy)                -> dayfirst=True
+    Tránh lỗi hiểu nhầm '2022-02-10' thành ngày 02 tháng 10.
     """
     import warnings
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        return pd.to_datetime(value, errors="coerce", dayfirst=True)
+        if isinstance(value, pd.Series):
+            s = value.astype("string")
+            iso_mask = s.str.match(r"^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}").fillna(False)
+            day_first = pd.to_datetime(value, errors="coerce", dayfirst=True)
+            iso = pd.to_datetime(value, errors="coerce", dayfirst=False)
+            return day_first.where(~iso_mask, iso)
+        # giá trị đơn
+        text = "" if value is None else str(value)
+        dayfirst = not bool(re.match(r"^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}", text))
+        return pd.to_datetime(value, errors="coerce", dayfirst=dayfirst)
 
 
 def parse_amount(value) -> float:
