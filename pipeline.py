@@ -99,9 +99,11 @@ def run_pipeline(
             cfg.INVOICE_STATUS,
             cfg.STATUS_NOT_FOUND,
         )
-        problems = einvoice.status_problems(data)
-        diffs = einvoice.tax_differences(data)
+        problems = einvoice.status_problems(data, main_cols)
+        reconciled = einvoice.reconcile_tax(data, main_cols)
+        diffs = einvoice.tax_differences(reconciled)
         sheets["HĐ sai trạng thái"] = problems
+        sheets["Đối chiếu thuế theo HĐ"] = reconciled
         sheets["Chênh lệch tiền thuế"] = diffs
         summary["HĐ bị thay thế/xóa bỏ/không tìm thấy"] = len(problems)
         summary["HĐ có chênh lệch tiền thuế"] = len(diffs)

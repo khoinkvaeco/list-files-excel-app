@@ -14,31 +14,33 @@ Người dùng vẫn có thể chỉnh lại trên giao diện web nếu file kh
 """
 
 # ---------------------------------------------------------------------------
-# 1) FILE DỮ LIỆU CHÍNH (Bảng kê hóa đơn mua vào)
-#    Tiêu đề nằm ở dòng 9-10, dữ liệu bắt đầu từ dòng 11 -> header_row = 10.
-#    Tham chiếu cột theo VỊ TRÍ (số thứ tự) vì bảng kê có tiêu đề gộp nhiều dòng.
+# 1) FILE DỮ LIỆU CHÍNH (Bảng kê hóa đơn mua vào, mẫu 01-1/HT)
+#    Dữ liệu thường nằm ở sheet "BKMV"; tiêu đề ở dòng 10-11, dữ liệu từ dòng 12.
+#    Tham chiếu cột theo VỊ TRÍ vì bảng kê có tiêu đề gộp nhiều dòng và mỗi file
+#    có thể thêm cột phụ khác nhau -> chọn sheet & chỉnh cột trên giao diện nếu cần.
 # ---------------------------------------------------------------------------
 MAIN = {
-    "header_row": 10,
+    "sheet": None,           # None -> tự đoán (ưu tiên sheet tên chứa "BK")
+    "header_row": 11,
     "cols": {
-        "mst": 9,            # [9]  Mã số thuế người bán
-        "invoice_no": 5,     # [5]  Số hóa đơn (bản có số 0 đầu, vd 0000611)
+        "mst": 12,           # [12] Mã số thuế người bán (bản giữ số 0 đầu)
+        "invoice_no": 6,     # [6]  Số hóa đơn
         "invoice_date": 7,   # [7]  Ngày, tháng, năm lập hóa đơn
-        "pretax": 14,        # [14] Giá trị HHDV mua vào chưa có thuế GTGT
-        "vat": 17,           # [17] Tiền thuế GTGT
-        "goods": 10,         # [10] Tên hàng hóa, dịch vụ
+        "pretax": 17,        # [17] Giá trị HHDV mua vào chưa có thuế GTGT
+        "vat": 19,           # [19] Tiền thuế GTGT
+        "goods": 13,         # [13] Tên hàng hóa, dịch vụ
     },
 }
 
 # ---------------------------------------------------------------------------
-# 2) FILE EXPORT TỪ TMS (tra cứu trạng thái người nộp thuế) — TÙY CHỌN
-#    Chưa có file mẫu; giữ vị trí theo mô tả (cột 42, 51). Điều chỉnh khi có file.
+# 2) FILE EXPORT TỪ TMS (Danh bạ người nộp thuế) — TÙY CHỌN
+#    Định dạng SpreadsheetML (.xls là XML), sheet "NNT", tiêu đề dòng 2.
 # ---------------------------------------------------------------------------
 TMS = {
-    "header_row": 1,
-    "mst_col": 1,          # cột chứa MST trong file TMS
-    "status_col": 42,      # cột 42 - Trạng thái người nộp thuế
-    "close_date_col": 51,  # cột 51 - Ngày đóng trạng thái tổ chức
+    "header_row": 2,
+    "mst_col": 4,          # [4]  Mã số thuế
+    "status_col": 45,      # [45] Trạng thái ĐKT tổ chức
+    "close_date_col": 54,  # [54] Ngày đóng trạng thái tổ chức
 }
 
 # ---------------------------------------------------------------------------
@@ -76,13 +78,13 @@ RISK = {
 #    Sẽ tinh chỉnh khi có file export hợp lệ (file mẫu hiện tại rỗng).
 # ---------------------------------------------------------------------------
 EINVOICE = {
-    "header_row": 1,
+    "header_row": 4,
     "cols": {
-        "mst": "Mã số thuế người bán",
-        "invoice_no": "Số hóa đơn",
-        "invoice_date": "Ngày lập",
-        "status": "Trạng thái hóa đơn",
-        "total_tax": "Tổng tiền thuế",
+        "mst": 7,           # [7]  MST người bán/người xuất hàng
+        "invoice_no": 4,    # [4]  Số hóa đơn
+        "invoice_date": 5,  # [5]  Ngày lập
+        "status": 19,       # [19] Trạng thái hóa đơn
+        "total_tax": 13,    # [13] Tổng tiền thuế
     },
 }
 

@@ -134,10 +134,19 @@ def _col_input(key: str, label: str, default):
     return raw
 
 
-def _load(file, header_row):
+def _load(file, header_row, sheet_name=0):
     if file is None:
         return None
-    return utils.read_excel(file, header_row=header_row)
+    return utils.read_excel(file, header_row=header_row, sheet_name=sheet_name)
+
+
+def _default_sheet_index(sheets: list[str]) -> int:
+    """Đoán sheet chứa dữ liệu bảng kê (ưu tiên tên chứa 'BKMV' hoặc bắt đầu 'BK')."""
+    upper = [str(s).upper() for s in sheets]
+    for i, s in enumerate(upper):
+        if "BKMV" in s or "BK M" in s or s.startswith("BK"):
+            return i
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +160,20 @@ def render_audit(cfg):
             "📄 File dữ liệu chính (bảng kê hóa đơn cần kiểm tra) — bắt buộc",
             type=["xlsx", "xls", "csv"],
         )
+        main_sheet = 0
+        if main_file is not None:
+            try:
+                sheets = utils.list_sheets(main_file)
+                if len(sheets) > 1:
+                    main_sheet = st.selectbox(
+                        "→ Chọn sheet chứa bảng kê",
+                        sheets,
+                        index=_default_sheet_index(sheets),
+                    )
+                else:
+                    main_sheet = sheets[0]
+            except Exception:  # noqa: BLE001
+                main_sheet = 0
         tms_file = st.file_uploader(
             "🏢 File TMS (trạng thái người nộp thuế) — tùy chọn",
             type=["xlsx", "xls", "csv"],
@@ -172,7 +195,7 @@ def render_audit(cfg):
             st.stop()
 
         try:
-            main_df = _load(main_file, cfg.MAIN["header_row"])
+            main_df = _load(main_file, cfg.MAIN["header_row"], sheet_name=main_sheet)
             tms_df = _load(tms_file, cfg.TMS["header_row"])
             einv_df = _load(einv_file, cfg.EINVOICE["header_row"])
         except Exception as e:  # noqa: BLE001
