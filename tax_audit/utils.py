@@ -25,23 +25,81 @@ def read_excel(file, header_row: int = 1, sheet_name=0) -> pd.DataFrame:
     thể là chỉ số hoặc tên sheet.
     """
     name = getattr(file, "name", str(file)).lower()
-    _rewind(file)
+
     if name.endswith(".csv"):
+        _rewind(file)
         return pd.read_csv(file, header=header_row - 1, dtype=str, keep_default_na=False)
-    return pd.read_excel(
-        file,
-        header=header_row - 1,
-        sheet_name=sheet_name,
-        dtype=object,
-        engine="openpyxl",
-    )
+
+    engines = _engine_candidates(name)
+    last_err = None
+    for engine in engines:
+        try:
+            _rewind(file)
+            return pd.read_excel(
+                file,
+                header=header_row - 1,
+                sheet_name=sheet_name,
+                dtype=object,
+                engine=engine,
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+
+    # Fallback cuối: file "xls" thực chất là bảng HTML
+    try:
+        return _read_html_table(file, header_row, sheet_name)
+    except Exception:  # noqa: BLE001
+        if last_err:
+            raise last_err
+        raise
 
 
 def list_sheets(file) -> list[str]:
-    """Trả về danh sách tên sheet của file Excel."""
+    """Trả về danh sách tên sheet của file Excel (chịu nhiều định dạng)."""
+    name = getattr(file, "name", str(file)).lower()
+    for engine in _engine_candidates(name):
+        try:
+            _rewind(file)
+            return pd.ExcelFile(file, engine=engine).sheet_names
+        except Exception:  # noqa: BLE001
+            continue
+    # HTML-"xls": không có khái niệm sheet, đặt tên mặc định
+    return ["Sheet1"]
+
+
+def _engine_candidates(name: str) -> list[str]:
+    """Chọn thứ tự engine đọc theo phần mở rộng file."""
+    if name.endswith((".xlsx", ".xlsm")):
+        return ["openpyxl"]
+    if name.endswith(".xls"):
+        return ["xlrd"]
+    return ["openpyxl", "xlrd"]
+
+
+def _read_html_table(file, header_row: int, sheet_name) -> pd.DataFrame:
+    """Đọc file 'xls'/'html' thực chất là bảng HTML.
+
+    Lấy bảng có nhiều cột nhất. ``sheet_name`` bị bỏ qua vì HTML không có sheet.
+    """
     _rewind(file)
-    xls = pd.ExcelFile(file, engine="openpyxl")
-    return xls.sheet_names
+    data = file.read() if hasattr(file, "read") else open(file, "rb").read()
+    if isinstance(data, bytes):
+        for enc in ("utf-8", "utf-16", "latin-1"):
+            try:
+                text = data.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = data.decode("utf-8", errors="ignore")
+    else:
+        text = data
+
+    tables = pd.read_html(io.StringIO(text), header=header_row - 1)
+    if not tables:
+        raise ValueError("Không tìm thấy bảng dữ liệu trong file HTML.")
+    best = max(tables, key=lambda t: t.shape[1])
+    return best.astype(object)
 
 
 def _rewind(file) -> None:
