@@ -38,6 +38,8 @@ def run_pipeline(
     summary: dict[str, int] = {}
     sheets: dict[str, pd.DataFrame] = {}
 
+    reconciled = None
+
     # --- Tác vụ 1 & 8: xử lý MST + chuẩn hóa số hóa đơn -----------------
     data = mst.process_mst(main_df, main_cols["mst"])
     data = invoice.normalize_invoice_no(data, main_cols["invoice_no"])
@@ -115,8 +117,12 @@ def run_pipeline(
         summary["HĐ bị thay thế/xóa bỏ/không tìm thấy"] = len(problems)
         summary["HĐ có chênh lệch tiền thuế"] = len(diffs)
 
-    # --- Sheet tổng hợp kết quả rà soát (giống "KQ rà BKMV") ------------
+    # --- Sheet "Bảng kê đã xử lý": A-T gốc + 9 cột kết quả U-AC ----------
     from tax_audit import utils as _u
+
+    bxl = _build_processed_sheet(data, main_cols, reconciled)
+
+    # --- Sheet tổng hợp kết quả rà soát (giống "KQ rà BKMV") ------------
 
     pretax_col = _u.resolve_column(data, main_cols["pretax"])
     vat_col = _u.resolve_column(data, main_cols["vat"])
@@ -135,8 +141,88 @@ def run_pipeline(
             kq_rows.append((k, v))
     kq_df = pd.DataFrame(kq_rows, columns=["Chỉ tiêu", "Giá trị"])
 
-    # sheet KQ rà soát + dữ liệu tổng hợp đặt lên đầu
-    ordered = {"KQ rà soát": kq_df, "Dữ liệu tổng hợp": data}
+    # thứ tự sheet: KQ rà soát -> Bảng kê đã xử lý -> dữ liệu tổng hợp -> ...
+    ordered = {
+        "KQ rà soát": kq_df,
+        "Bảng kê đã xử lý": bxl,
+        "Dữ liệu tổng hợp": data,
+    }
     ordered.update(sheets)
 
     return {"data": data, "sheets": ordered, "summary": summary}
+
+
+def _rate_label(pretax_val: float, vat_val: float) -> str:
+    """Suy ra thuế suất từ (tiền thuế / giá trị chưa thuế) -> nhãn 10%/8%/5%..."""
+    if not pretax_val:
+        return ""
+    r = vat_val / pretax_val
+    for target, txt in ((0.10, "10%"), (0.08, "8%"), (0.05, "5%"), (0.0, "0%")):
+        if abs(r - target) < 0.005:
+            return txt
+    return f"{r * 100:.1f}%"
+
+
+def _build_processed_sheet(data, main_cols, reconciled):
+    """Tạo 'Bảng kê đã xử lý' = cột A-T gốc + 9 cột kết quả U-AC tự điền."""
+    from tax_audit import utils as _u
+
+    n = len(data)
+
+    def col(name, default=""):
+        return data[name] if name in data.columns else pd.Series([default] * n, index=data.index)
+
+    # cột A-T (20 cột đầu của bảng kê gốc)
+    orig = data.iloc[:, : min(20, data.shape[1])].copy()
+
+    pretax_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    pre = _u.parse_amount_series(data[pretax_col])
+    vatv = _u.parse_amount_series(data[vat_col])
+
+    # U (21): Loại hàng hóa nghi ngờ
+    loai_hang = col("Từ khóa khớp")
+    # V (22): Trạng thái NNT
+    trang_thai = col("Trạng thái NNT")
+    # W (23): ngày liên quan (ngày đóng trạng thái)
+    ngay_lq = col("Ngày đóng trạng thái")
+    if "Ngày đóng trạng thái" in data.columns:
+        ngay_lq = _u.parse_date(data["Ngày đóng trạng thái"]).dt.strftime("%d/%m/%Y").fillna("")
+    # X (24): Hóa đơn rủi ro
+    rui_ro = col("Văn bản rủi ro")
+    # Y (25): Kê khai trùng
+    ke_khai_trung = col("Nhóm trùng")
+    # Z (26): tra HĐĐT (trạng thái)
+    tra_hddt = col("Nhóm trạng thái")
+    # AA (27): tiền thuế trên HĐĐT
+    tien_thue_hddt = col("Tổng tiền thuế (HĐĐT)")
+    # AB (28): Chênh lệch với BK (theo hóa đơn)
+    chenh_lech = pd.Series([pd.NA] * n, index=data.index)
+    if reconciled is not None and not reconciled.empty:
+        date_col = _u.resolve_column(data, main_cols["invoice_date"])
+        key = pd.DataFrame({
+            "MST (chuẩn hóa)": col("MST (chuẩn hóa)"),
+            "Số HĐ (bỏ 0 đầu)": col("Số HĐ (bỏ 0 đầu)"),
+            "Ngày HĐ": _u.parse_date(data[date_col]).dt.strftime("%Y-%m-%d"),
+        })
+        rc = reconciled[["MST (chuẩn hóa)", "Số HĐ (bỏ 0 đầu)", "Ngày HĐ", "Chênh lệch tiền thuế"]]
+        merged = key.merge(rc, on=["MST (chuẩn hóa)", "Số HĐ (bỏ 0 đầu)", "Ngày HĐ"], how="left")
+        chenh_lech = merged["Chênh lệch tiền thuế"].values
+    # AC (29): check 10%, 8% (thuế suất suy ra từ dữ liệu)
+    check_rate = [
+        _rate_label(p, v) for p, v in zip(pre.tolist(), vatv.tolist())
+    ]
+
+    result = pd.DataFrame({
+        "Loại hàng hóa": loai_hang.values if hasattr(loai_hang, "values") else loai_hang,
+        "Trạng thái": trang_thai.values if hasattr(trang_thai, "values") else trang_thai,
+        "Ngày liên quan": ngay_lq.values if hasattr(ngay_lq, "values") else ngay_lq,
+        "Hóa đơn rủi ro": rui_ro.values if hasattr(rui_ro, "values") else rui_ro,
+        "Kê khai trùng": ke_khai_trung.values if hasattr(ke_khai_trung, "values") else ke_khai_trung,
+        "Tra HĐĐT": tra_hddt.values if hasattr(tra_hddt, "values") else tra_hddt,
+        "Tiền thuế trên HĐĐT": tien_thue_hddt.values if hasattr(tien_thue_hddt, "values") else tien_thue_hddt,
+        "Chênh lệch với BK": chenh_lech,
+        "Check 10%, 8%": check_rate,
+    }, index=data.index)
+
+    return pd.concat([orig, result], axis=1)
