@@ -116,3 +116,42 @@ INVOICE_STATUS = {
 
 # Nhãn dùng khi không tìm thấy hóa đơn trong file HĐĐT
 STATUS_NOT_FOUND = "Không tìm thấy"
+
+# ---------------------------------------------------------------------------
+# 7) CHÍNH SÁCH GIẢM THUẾ GTGT 10% -> 8%
+# ---------------------------------------------------------------------------
+# Các giai đoạn được giảm còn 8% (đã gộp khoảng liền kề). Ngoài các khoảng này
+# thuế suất phổ thông là 10%.
+VAT_REDUCED_PERIODS = [
+    ("2022-02-01", "2022-12-31"),  # NĐ 15/2022
+    ("2023-07-01", "2023-12-31"),  # NĐ 44/2023
+    ("2024-01-01", "2024-12-31"),  # NĐ 94/2023 + NĐ 72/2024
+    ("2025-07-01", "2026-12-31"),  # NĐ 174/2024 (174/2025)
+]
+
+# Nhóm hàng hóa/dịch vụ KHÔNG được giảm thuế (vẫn 10%) theo Phụ lục I, II, III
+# của NĐ 15/2022 (được các NĐ sau dùng lại). Đây là bộ TỪ KHÓA nhận diện gần
+# đúng trên mô tả hàng hóa (giữ nguyên dấu, khớp theo ranh giới từ) — mang tính
+# TRỢ GIÚP, cần người kiểm tra xác nhận theo mã HS/ngành khi cần.
+VAT_EXCLUDE_KEYWORDS = {
+    "PL I - Viễn thông": ["viễn thông", "cước viễn thông"],
+    "PL I - Tài chính, ngân hàng": ["ngân hàng", "tín dụng", "cho vay", "lãi vay", "dịch vụ tài chính"],
+    "PL I - Chứng khoán": ["chứng khoán", "môi giới chứng khoán", "trái phiếu", "cổ phiếu"],
+    "PL I - Bảo hiểm": ["bảo hiểm"],
+    "PL I - Bất động sản": ["bất động sản", "quyền sử dụng đất", "chuyển nhượng đất"],
+    "PL I - Kim loại": ["kim loại", "sắt", "thép", "inox", "nhôm", "gang", "tôn"],
+    "PL I - Khai khoáng": ["khoáng sản", "quặng", "khai khoáng"],
+    "PL I - Than cốc, dầu tinh chế": ["than cốc", "dầu mỏ", "dầu diesel", "dầu do", "dầu fo"],
+    "PL I - Hóa chất": ["hóa chất", "hoá chất"],
+    "PL II - Thuốc lá": ["thuốc lá", "xì gà", "cigar"],
+    "PL II - Rượu, bia": ["rượu", "bia", "wine", "beer"],
+    "PL II - Ô tô, xe máy": ["ô tô", "ôtô", "xe ô tô", "mô tô", "xe máy phân khối lớn"],
+    "PL II - Tàu bay, du thuyền": ["tàu bay", "máy bay", "du thuyền"],
+    "PL II - Xăng": ["xăng"],
+    "PL II - Vàng mã, bài lá": ["vàng mã", "hàng mã", "bài lá"],
+    "PL II - Dịch vụ TTĐB": ["vũ trường", "massage", "karaoke", "casino", "đặt cược", "xổ số", "golf", "sân golf", "gôn"],
+    "PL III - Công nghệ thông tin": [
+        "công nghệ thông tin", "máy vi tính", "máy tính", "laptop", "máy in",
+        "linh kiện điện tử", "bán dẫn", "mạch điện tử", "thẻ thông minh", "thiết bị ngoại vi",
+    ],
+}

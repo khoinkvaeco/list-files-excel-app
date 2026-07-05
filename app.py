@@ -42,6 +42,8 @@ def build_runtime_config():
         GOODS_KEYWORDS=list(C.GOODS_KEYWORDS),
         INVOICE_STATUS=copy.deepcopy(C.INVOICE_STATUS),
         STATUS_NOT_FOUND=C.STATUS_NOT_FOUND,
+        VAT_REDUCED_PERIODS=list(C.VAT_REDUCED_PERIODS),
+        VAT_EXCLUDE_KEYWORDS=copy.deepcopy(C.VAT_EXCLUDE_KEYWORDS),
     )
 
     with st.sidebar:

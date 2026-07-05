@@ -120,7 +120,7 @@ def run_pipeline(
     # --- Sheet "Bảng kê đã xử lý": A-T gốc + 9 cột kết quả U-AC ----------
     from tax_audit import utils as _u
 
-    bxl = _build_processed_sheet(data, main_cols, reconciled)
+    bxl = _build_processed_sheet(data, main_cols, reconciled, cfg)
 
     # --- Sheet tổng hợp kết quả rà soát (giống "KQ rà BKMV") ------------
 
@@ -152,56 +152,7 @@ def run_pipeline(
     return {"data": data, "sheets": ordered, "summary": summary}
 
 
-# Các giai đoạn được giảm thuế GTGT 10% -> 8% (đã gộp khoảng liền kề).
-# Ngoài các khoảng này, thuế suất phổ thông là 10%.
-VAT_REDUCED_PERIODS = [
-    ("2022-02-01", "2022-12-31"),  # NĐ 15/2022
-    ("2023-07-01", "2023-12-31"),  # NĐ 44/2023
-    ("2024-01-01", "2024-12-31"),  # NĐ 94/2023 + NĐ 72/2024
-    ("2025-07-01", "2026-12-31"),  # NĐ 174/2024 (174/2025)
-]
-
-
-def _infer_rate(pretax_val: float, vat_val: float):
-    """Suy ra thuế suất từ (tiền thuế / giá trị chưa thuế). None nếu không rõ."""
-    if not pretax_val:
-        return None
-    r = vat_val / pretax_val
-    for target in (0.10, 0.08, 0.05, 0.0):
-        if abs(r - target) < 0.005:
-            return target
-    return round(r, 4)
-
-
-def _in_reduced_period(ts) -> bool:
-    import pandas as _pd
-
-    if ts is None or _pd.isna(ts):
-        return False
-    for start, end in VAT_REDUCED_PERIODS:
-        if _pd.Timestamp(start) <= ts <= _pd.Timestamp(end):
-            return True
-    return False
-
-
-def _vat_policy_check(ts, pretax_val: float, vat_val: float) -> str:
-    """Đối chiếu thuế suất thực tế với chính sách giảm 8% theo ngày hóa đơn."""
-    rate = _infer_rate(pretax_val, vat_val)
-    if rate is None:
-        return ""
-    reduced = _in_reduced_period(ts)
-    if abs(rate - 0.10) < 0.005:
-        return "10% - rà lại (đang kỳ giảm 8%)" if reduced else "10% - đúng"
-    if abs(rate - 0.08) < 0.005:
-        return "8% - đúng kỳ giảm" if reduced else "8% - NGOÀI kỳ giảm (?)"
-    if abs(rate - 0.05) < 0.005:
-        return "5%"
-    if abs(rate - 0.0) < 0.005:
-        return "0% / không thuế"
-    return f"{rate * 100:.1f}% - khác"
-
-
-def _build_processed_sheet(data, main_cols, reconciled):
+def _build_processed_sheet(data, main_cols, reconciled, cfg):
     """Tạo 'Bảng kê đã xử lý' = cột A-T gốc + 9 cột kết quả U-AC tự điền."""
     from tax_audit import utils as _u
 
@@ -245,12 +196,18 @@ def _build_processed_sheet(data, main_cols, reconciled):
     else:
         chenh_lech = pd.Series([pd.NA] * n, index=data.index)
 
-    # AC (29): check 10%, 8% theo chính sách giảm thuế + ngày hóa đơn
+    # AC (29): check 10%, 8% theo chính sách giảm thuế (ngày + nhóm mặt hàng)
+    from tax_audit import vat_policy
+
     date_col = _u.resolve_column(data, main_cols["invoice_date"])
+    goods_col = _u.resolve_column(data, main_cols["goods"])
     inv_dates = _u.parse_date(data[date_col])
+    goods_series = data[goods_col].astype(str)
+    periods = getattr(cfg, "VAT_REDUCED_PERIODS", [])
+    excl = getattr(cfg, "VAT_EXCLUDE_KEYWORDS", {})
     check_rate = [
-        _vat_policy_check(d, p, v)
-        for d, p, v in zip(inv_dates.tolist(), pre.tolist(), vatv.tolist())
+        vat_policy.check(d, p, v, g, periods, excl)
+        for d, p, v, g in zip(inv_dates.tolist(), pre.tolist(), vatv.tolist(), goods_series.tolist())
     ]
 
     result = pd.DataFrame({
