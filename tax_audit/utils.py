@@ -247,18 +247,52 @@ def to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
 # ---------------------------------------------------------------------------
 # PHÂN GIẢI CỘT
 # ---------------------------------------------------------------------------
+def excel_col_to_index(letters: str) -> int:
+    """Đổi chữ cái cột Excel -> vị trí cột đếm từ 1. 'A'->1, 'B'->2, 'AA'->27..."""
+    s = str(letters).strip().upper()
+    n = 0
+    for ch in s:
+        if not ("A" <= ch <= "Z"):
+            raise ValueError(f"'{letters}' không phải chữ cái cột Excel hợp lệ.")
+        n = n * 26 + (ord(ch) - 64)
+    return n
+
+
+def index_to_excel_col(index: int) -> str:
+    """Đổi vị trí cột (đếm từ 1) -> chữ cái cột Excel. 1->'A', 27->'AA'..."""
+    n = int(index)
+    out = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out or "A"
+
+
+def is_column_ref(ref) -> bool:
+    """Ref có phải là tham chiếu CỘT (số thứ tự hoặc chữ cái Excel) không?"""
+    if isinstance(ref, int):
+        return True
+    return isinstance(ref, str) and bool(re.fullmatch(r"[A-Za-z]{1,3}", ref.strip()))
+
+
 def resolve_column(df: pd.DataFrame, ref: ColumnRef) -> str:
     """Trả về TÊN cột thực tế trong ``df`` từ tham chiếu ``ref``.
 
-    - int  : vị trí cột đếm từ 1.
-    - str  : khớp theo tên (ưu tiên khớp chính xác, sau đó khớp "chứa",
-             không phân biệt hoa/thường và khoảng trắng thừa).
+    - int              : vị trí cột đếm từ 1.
+    - chữ cái Excel     : 'A','B','L','AA'... (1-3 chữ cái) -> vị trí cột.
+    - chuỗi khác        : khớp theo TÊN tiêu đề (khớp chính xác, rồi "chứa").
     """
+    idx = None
     if isinstance(ref, int):
         idx = ref - 1
+    elif isinstance(ref, str) and re.fullmatch(r"[A-Za-z]{1,3}", ref.strip()):
+        idx = excel_col_to_index(ref) - 1
+
+    if idx is not None:
         if idx < 0 or idx >= len(df.columns):
+            col_txt = ref if isinstance(ref, str) else f"thứ {ref}"
             raise IndexError(
-                f"File chỉ có {len(df.columns)} cột, không có cột thứ {ref}."
+                f"File chỉ có {len(df.columns)} cột, không có cột {col_txt}."
             )
         return df.columns[idx]
 
