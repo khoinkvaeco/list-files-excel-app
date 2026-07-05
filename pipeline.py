@@ -42,6 +42,13 @@ def run_pipeline(
     data = mst.process_mst(main_df, main_cols["mst"])
     data = invoice.normalize_invoice_no(data, main_cols["invoice_no"])
 
+    # Loại bỏ các dòng KHÔNG phải hóa đơn (dòng "Tổng cộng", dòng trống ở cuối
+    # bảng kê): giữ lại dòng có MST hoặc có số hóa đơn. Tránh dòng tổng cộng làm
+    # nhân đôi tiền thuế và gây sai các chỉ tiêu.
+    has_mst = data["MST (chuẩn hóa)"].astype(str).str.strip() != ""
+    has_no = data["Số HĐ (bỏ 0 đầu)"].astype(str).str.strip() != ""
+    data = data[has_mst | has_no].reset_index(drop=True)
+
     # --- Tác vụ 2: sheet danh sách MST để tra TMS ----------------------
     mst_sheet = mst.build_mst_sheet(main_df, main_cols["mst"])
     sheets["MST tra cứu"] = mst_sheet
@@ -108,8 +115,28 @@ def run_pipeline(
         summary["HĐ bị thay thế/xóa bỏ/không tìm thấy"] = len(problems)
         summary["HĐ có chênh lệch tiền thuế"] = len(diffs)
 
-    # sheet dữ liệu tổng hợp đặt lên đầu
-    ordered = {"Dữ liệu tổng hợp": data}
+    # --- Sheet tổng hợp kết quả rà soát (giống "KQ rà BKMV") ------------
+    from tax_audit import utils as _u
+
+    pretax_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    tong_chua_thue = float(_u.parse_amount_series(data[pretax_col]).sum())
+    tong_thue = float(_u.parse_amount_series(data[vat_col]).sum())
+
+    kq_rows = [
+        ("Số dòng bảng kê", len(data)),
+        ("Số hóa đơn (số MST × số HĐ)", summary.get("Số MST duy nhất", "")),
+        ("Tổng giá trị chưa thuế (bảng kê)", round(tong_chua_thue)),
+        ("Tổng tiền thuế GTGT (bảng kê)", round(tong_thue)),
+    ]
+    # đưa toàn bộ chỉ tiêu cảnh báo vào bảng tổng hợp
+    for k, v in summary.items():
+        if k != "Số MST duy nhất":
+            kq_rows.append((k, v))
+    kq_df = pd.DataFrame(kq_rows, columns=["Chỉ tiêu", "Giá trị"])
+
+    # sheet KQ rà soát + dữ liệu tổng hợp đặt lên đầu
+    ordered = {"KQ rà soát": kq_df, "Dữ liệu tổng hợp": data}
     ordered.update(sheets)
 
     return {"data": data, "sheets": ordered, "summary": summary}
