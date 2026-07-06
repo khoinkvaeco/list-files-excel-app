@@ -17,6 +17,9 @@ outputs/
 *.csv
 !samples/*.xlsx
 
+# Cấu hình cột do người dùng lưu (theo từng máy)
+user_config.json
+
 # OS / IDE
 .DS_Store
 .idea/
