@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 
 import config as C
-from tax_audit import utils, xml_invoice
+from tax_audit import utils, xml_invoice, merge as merge_mod
 from pipeline import run_pipeline
 
 # File lưu cấu hình cột do người dùng chỉnh (nằm cạnh app.py, theo từng máy)
@@ -60,7 +60,7 @@ def _base_config() -> dict:
         "TMS": copy.deepcopy(C.TMS),
         "EINVOICE": copy.deepcopy(C.EINVOICE),
         "RISK": copy.deepcopy(C.RISK),
-        "GOODS_KEYWORDS": list(C.GOODS_KEYWORDS),
+        "GOODS_KEYWORDS": copy.deepcopy(C.GOODS_KEYWORDS),
     }
     if saved.get("MAIN"):
         base["MAIN"]["header_row"] = saved["MAIN"].get("header_row", base["MAIN"]["header_row"])
@@ -100,7 +100,7 @@ def build_runtime_config():
         TMS=copy.deepcopy(C.TMS),
         RISK=copy.deepcopy(C.RISK),
         EINVOICE=copy.deepcopy(C.EINVOICE),
-        GOODS_KEYWORDS=list(C.GOODS_KEYWORDS),
+        GOODS_KEYWORDS=copy.deepcopy(C.GOODS_KEYWORDS),
         INVOICE_STATUS=copy.deepcopy(C.INVOICE_STATUS),
         STATUS_NOT_FOUND=C.STATUS_NOT_FOUND,
         VAT_REDUCED_PERIODS=list(C.VAT_REDUCED_PERIODS),
@@ -179,14 +179,23 @@ def build_runtime_config():
                 "Dòng tiêu đề (HĐĐT)", 1, 50, base["EINVOICE"]["header_row"], key="einv_hdr"
             )
 
-        with st.expander("Từ khóa mặt hàng nghi ngờ", expanded=False):
-            kw = st.text_area(
-                "Mỗi từ khóa 1 dòng",
-                value="\n".join(base["GOODS_KEYWORDS"]),
-                key="kw",
-                height=180,
-            )
-            cfg.GOODS_KEYWORDS = [x.strip() for x in kw.splitlines() if x.strip()]
+        with st.expander("Từ khóa mặt hàng nghi ngờ (2 nhóm)", expanded=False):
+            base_kw = base["GOODS_KEYWORDS"]
+            if not isinstance(base_kw, dict):  # tương thích cấu hình cũ (list)
+                base_kw = {"Không phục vụ SXKD": list(base_kw), "Quà tặng": []}
+            cfg.GOODS_KEYWORDS = {}
+            for gi, (grp_label, grp_kw) in enumerate(base_kw.items()):
+                st.markdown(f"**{grp_label}**")
+                txt = st.text_area(
+                    "Mỗi từ khóa 1 dòng",
+                    value="\n".join(grp_kw),
+                    key=f"kw_{gi}",
+                    height=140,
+                    label_visibility="collapsed",
+                )
+                cfg.GOODS_KEYWORDS[grp_label] = [
+                    x.strip() for x in txt.splitlines() if x.strip()
+                ]
 
         # --- Lưu / khôi phục cấu hình ---
         st.divider()
@@ -411,11 +420,97 @@ def render_xml_converter():
 
 
 # ---------------------------------------------------------------------------
+# TAB 3: GỘP NHIỀU FILE / SHEET EXCEL
+# ---------------------------------------------------------------------------
+def render_merge():
+    st.subheader("Gộp nhiều file / sheet Excel thành 1 bảng tổng hợp")
+    st.caption(
+        "Chọn nhiều file Excel (mỗi file lấy sheet đầu), hoặc 1 file để gộp tất cả "
+        "các sheet của nó, thành một bảng duy nhất."
+    )
+
+    mode = st.radio(
+        "Kiểu gộp",
+        ["Gộp nhiều FILE (mỗi file 1 bảng)", "Gộp các SHEET trong 1 file"],
+        horizontal=True,
+    )
+    merge_by_files = mode.startswith("Gộp nhiều FILE")
+
+    files = st.file_uploader(
+        "📎 File Excel" + (" (chọn nhiều file)" if merge_by_files else " (1 file nhiều sheet)"),
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=merge_by_files,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        opt_blank = st.checkbox("Bỏ dòng trống", value=True)
+        opt_source = st.checkbox("Thêm cột 'Nguồn' (tên file/sheet)", value=True)
+    with c2:
+        opt_dedupe = st.checkbox("Bỏ dòng trùng lặp hoàn toàn", value=False)
+        header_rows = st.number_input(
+            "Số dòng tiêu đề dùng chung (0 = không có)", 0, 50, 1
+        )
+
+    out_name = st.text_input("Tên file kết quả", value="TongHop.xlsx")
+
+    has_files = bool(files) if merge_by_files else files is not None
+    if st.button("⬇️ Gộp & tải file tổng hợp", type="primary", disabled=not has_files):
+        try:
+            if merge_by_files:
+                units = merge_mod.units_from_files(files)
+            else:
+                units = merge_mod.units_from_sheets(files)
+            out, stats = merge_mod.merge_units(
+                units,
+                blank=opt_blank,
+                header_rows=int(header_rows),
+                source=opt_source,
+                dedupe=opt_dedupe,
+            )
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Lỗi khi gộp: {e}")
+            st.exception(e)
+            st.stop()
+
+        if not out:
+            st.warning("Không có dữ liệu để gộp.")
+            st.stop()
+
+        st.session_state["merge_out"] = (out, stats, out_name)
+
+    if "merge_out" in st.session_state:
+        out, stats, out_name = st.session_state["merge_out"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Số nguồn", stats["nguồn"])
+        m2.metric("Dòng giữ lại", stats["giữ"])
+        m3.metric("Bỏ trống", stats["bỏ_trống"])
+        m4.metric("Bỏ trùng", stats["bỏ_trùng"])
+
+        name = out_name.strip() or "TongHop.xlsx"
+        if not name.lower().endswith(".xlsx"):
+            name += ".xlsx"
+        st.download_button(
+            "⬇️ Tải file tổng hợp",
+            data=utils.matrix_to_excel_bytes(out, "TongHop"),
+            file_name=name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+        st.markdown("#### Xem trước (tối đa 500 dòng)")
+        show_df(pd.DataFrame(out).head(500))
+
+
+# ---------------------------------------------------------------------------
 # ĐIỀU HƯỚNG
 # ---------------------------------------------------------------------------
 cfg = build_runtime_config()
-tab_audit, tab_xml = st.tabs(["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel"])
+tab_audit, tab_xml, tab_merge = st.tabs(
+    ["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel", "📁 Gộp file Excel"]
+)
 with tab_audit:
     render_audit(cfg)
 with tab_xml:
     render_xml_converter()
+with tab_merge:
+    render_merge()

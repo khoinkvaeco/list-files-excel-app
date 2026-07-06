@@ -23,35 +23,50 @@ def _norm(text) -> str:
 
 
 def flag_non_business_goods(
-    df: pd.DataFrame, goods_col, keywords: list[str]
+    df: pd.DataFrame, goods_col, keyword_groups
 ) -> pd.DataFrame:
-    """Đánh dấu các dòng có mặt hàng chứa từ khóa nghi ngờ.
+    """Đánh dấu các dòng có mặt hàng chứa từ khóa nghi ngờ, theo NHÓM.
+
+    ``keyword_groups`` là dict {tên nhóm: [từ khóa]} (ví dụ 'Không phục vụ SXKD',
+    'Quà tặng'); cũng chấp nhận list (khi đó gộp thành 1 nhóm 'Nghi ngờ').
 
     Thêm cột:
       - Mặt hàng nghi ngờ (bool)
-      - Từ khóa khớp (chuỗi các từ khóa tìm thấy)
+      - Nhóm nghi ngờ (tên nhóm khớp, vd 'Quà tặng')
+      - Từ khóa khớp (các từ khóa tìm thấy)
     So khớp theo ranh giới từ, phân biệt dấu để tránh cảnh báo sai.
     """
     df = df.copy()
     col = utils.resolve_column(df, goods_col)
 
-    norm_keywords = [(kw, _norm(kw)) for kw in keywords if str(kw).strip()]
+    if isinstance(keyword_groups, (list, tuple)):
+        keyword_groups = {"Nghi ngờ": list(keyword_groups)}
+
+    groups = [
+        (label, [(kw, _norm(kw)) for kw in kws if str(kw).strip()])
+        for label, kws in keyword_groups.items()
+    ]
 
     def match(cell):
         text = _norm(cell)
         if not text:
-            return ""
-        found = []
-        for original, nk in norm_keywords:
-            # (?<!\w)/(?!\w) là ranh giới từ có nhận biết chữ Unicode (tiếng Việt),
-            # tránh khớp nhầm khi từ khóa là một phần của từ khác.
-            if re.search(rf"(?<!\w){re.escape(nk)}(?!\w)", text):
-                found.append(original)
-        return ", ".join(found)
+            return ("", "")
+        found_kw, found_grp = [], []
+        for label, kws in groups:
+            hits = [
+                original
+                for original, nk in kws
+                if re.search(rf"(?<!\w){re.escape(nk)}(?!\w)", text)
+            ]
+            if hits:
+                found_kw.extend(hits)
+                found_grp.append(label)
+        return (", ".join(found_grp), ", ".join(found_kw))
 
-    matched = df[col].map(match)
-    df["Từ khóa khớp"] = matched
-    df["Mặt hàng nghi ngờ"] = matched != ""
+    res = df[col].map(match)
+    df["Nhóm nghi ngờ"] = res.map(lambda t: t[0])
+    df["Từ khóa khớp"] = res.map(lambda t: t[1])
+    df["Mặt hàng nghi ngờ"] = df["Nhóm nghi ngờ"] != ""
     return df
 
 

@@ -89,21 +89,30 @@ EINVOICE = {
 }
 
 # ---------------------------------------------------------------------------
-# 5) TỪ KHÓA MẶT HÀNG "KHÔNG PHỤC VỤ SẢN XUẤT KINH DOANH"
+# 5) TỪ KHÓA MẶT HÀNG NGHI NGỜ — tách 2 nhóm
 # ---------------------------------------------------------------------------
-GOODS_KEYWORDS = [
-    "golf",
-    "quà",
-    "tặng",
-    "biếu",
-    "rượu",
-    "wine",
-    "bia",
-    "beer",
-    "thuốc lá",
-    "cigar",
-    "sân golf",
-]
+GOODS_KEYWORDS = {
+    "Không phục vụ SXKD": [
+        "golf",
+        "sân golf",
+        "gôn",
+        "rượu",
+        "wine",
+        "bia",
+        "beer",
+        "thuốc lá",
+        "cigar",
+        "spa",
+        "massage",
+    ],
+    "Quà tặng": [
+        "quà",
+        "tặng",
+        "biếu",
+        "quà tặng",
+        "quà biếu",
+    ],
+}
 
 # ---------------------------------------------------------------------------
 # 6) TỪ KHÓA NHẬN DIỆN TRẠNG THÁI HÓA ĐƠN (tra ở file HĐĐT)

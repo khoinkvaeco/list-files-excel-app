@@ -30,10 +30,13 @@ tiền thuế, v.v.
 
 > Công cụ tự bỏ dòng "Tổng cộng"/dòng trống cuối bảng kê (không có MST và số HĐ) để tổng tiền thuế khớp đúng số liệu gốc.
 
-Giao diện có 2 tab: **🔍 Kiểm tra bảng kê** và **🔄 XML hóa đơn → Excel**. Tab XML
-cho phép tải nhiều file XML hóa đơn điện tử cùng lúc, trích xuất thành Excel (bảng
-hóa đơn + chi tiết hàng hóa); file này dùng luôn được làm *File hóa đơn điện tử* ở
-tab kiểm tra.
+Giao diện có 3 tab:
+
+- **🔍 Kiểm tra bảng kê** — quy trình 12 tác vụ.
+- **🔄 XML hóa đơn → Excel** — tải nhiều file XML hóa đơn điện tử, trích xuất thành Excel (bảng hóa đơn + chi tiết hàng hóa); dùng luôn được làm *File hóa đơn điện tử* ở tab kiểm tra.
+- **📁 Gộp file Excel** — gộp nhiều file (mỗi file lấy sheet đầu) hoặc gộp các sheet trong 1 file thành một bảng tổng hợp, kèm tùy chọn: bỏ dòng trống, dùng chung tiêu đề, thêm cột "Nguồn", khử trùng lặp.
+
+**Từ khóa mặt hàng nghi ngờ** được tách 2 nhóm: *Không phục vụ SXKD* (golf, rượu, bia, thuốc lá…) và *Quà tặng* (quà, tặng, biếu). Cột "Loại hàng hóa" (U) trong kết quả hiển thị tên nhóm khớp.
 
 > **Lưu ý về tra cứu online:** Công cụ **không đăng nhập trực tiếp** vào hệ thống
 > TMS hay hệ thống hóa đơn điện tử của cơ quan thuế (việc đó cần tài khoản/chữ ký
