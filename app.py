@@ -7,6 +7,8 @@ Chạy:  streamlit run app.py
 from __future__ import annotations
 
 import copy
+import json
+import os
 import types
 
 import pandas as pd
@@ -15,6 +17,64 @@ import streamlit as st
 import config as C
 from tax_audit import utils, xml_invoice
 from pipeline import run_pipeline
+
+# File lưu cấu hình cột do người dùng chỉnh (nằm cạnh app.py, theo từng máy)
+USER_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
+
+# Các key widget cấu hình cột — dùng khi khôi phục mặc định
+_CFG_WIDGET_PREFIXES = ("main_", "tms_", "einv_", "risk_", "kw")
+
+
+def load_user_config() -> dict:
+    """Đọc cấu hình đã lưu (nếu có)."""
+    try:
+        with open(USER_CONFIG_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_user_config(cfg) -> None:
+    """Lưu các phần cấu hình cột có thể chỉnh ra file JSON."""
+    data = {
+        "MAIN": {"header_row": cfg.MAIN["header_row"], "cols": cfg.MAIN["cols"]},
+        "TMS": {
+            "header_row": cfg.TMS["header_row"],
+            "mst_col": cfg.TMS["mst_col"],
+            "status_col": cfg.TMS["status_col"],
+            "close_date_col": cfg.TMS["close_date_col"],
+        },
+        "EINVOICE": {"header_row": cfg.EINVOICE["header_row"], "cols": cfg.EINVOICE["cols"]},
+        "RISK": {"sheets": cfg.RISK["sheets"]},
+        "GOODS_KEYWORDS": cfg.GOODS_KEYWORDS,
+    }
+    with open(USER_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _base_config() -> dict:
+    """Giá trị mặc định cho các ô cấu hình = config gốc phủ bởi cấu hình đã lưu."""
+    saved = load_user_config()
+    base = {
+        "MAIN": copy.deepcopy(C.MAIN),
+        "TMS": copy.deepcopy(C.TMS),
+        "EINVOICE": copy.deepcopy(C.EINVOICE),
+        "RISK": copy.deepcopy(C.RISK),
+        "GOODS_KEYWORDS": list(C.GOODS_KEYWORDS),
+    }
+    if saved.get("MAIN"):
+        base["MAIN"]["header_row"] = saved["MAIN"].get("header_row", base["MAIN"]["header_row"])
+        base["MAIN"]["cols"].update(saved["MAIN"].get("cols", {}))
+    if saved.get("TMS"):
+        base["TMS"].update({k: v for k, v in saved["TMS"].items() if k in base["TMS"]})
+    if saved.get("EINVOICE"):
+        base["EINVOICE"]["header_row"] = saved["EINVOICE"].get("header_row", base["EINVOICE"]["header_row"])
+        base["EINVOICE"]["cols"].update(saved["EINVOICE"].get("cols", {}))
+    if saved.get("RISK", {}).get("sheets"):
+        base["RISK"]["sheets"] = saved["RISK"]["sheets"]
+    if saved.get("GOODS_KEYWORDS"):
+        base["GOODS_KEYWORDS"] = saved["GOODS_KEYWORDS"]
+    return base
 
 st.set_page_config(page_title="Công cụ kiểm tra thuế", page_icon="📊", layout="wide")
 
@@ -34,6 +94,7 @@ def build_runtime_config():
     Không deepcopy cả module ``config`` (module không thể copy/pickle) — chỉ sao
     chép các giá trị dữ liệu cần thiết vào một namespace có thể chỉnh sửa.
     """
+    base = _base_config()
     cfg = types.SimpleNamespace(
         MAIN=copy.deepcopy(C.MAIN),
         TMS=copy.deepcopy(C.TMS),
@@ -48,6 +109,8 @@ def build_runtime_config():
 
     with st.sidebar:
         st.header("⚙️ Cấu hình cột")
+        if os.path.exists(USER_CONFIG_PATH):
+            st.caption("✅ Đang dùng cấu hình đã lưu của bạn.")
         st.caption(
             "Nhập **chữ cái cột Excel** (A, B, C, … như trên thanh cột Excel). "
             "Cũng chấp nhận số thứ tự cột hoặc tên tiêu đề. "
@@ -63,21 +126,21 @@ def build_runtime_config():
                 ("vat", "Thuế GTGT"),
                 ("goods", "Tên hàng hóa"),
             ]:
-                cfg.MAIN["cols"][k] = _col_input(f"main_{k}", label, C.MAIN["cols"][k])
+                cfg.MAIN["cols"][k] = _col_input(f"main_{k}", label, base["MAIN"]["cols"][k])
             cfg.MAIN["header_row"] = st.number_input(
-                "Dòng tiêu đề", 1, 50, C.MAIN["header_row"], key="main_hdr"
+                "Dòng tiêu đề", 1, 50, base["MAIN"]["header_row"], key="main_hdr"
             )
 
         with st.expander("File TMS", expanded=False):
-            cfg.TMS["mst_col"] = _col_input("tms_mst", "Cột MST", C.TMS["mst_col"])
+            cfg.TMS["mst_col"] = _col_input("tms_mst", "Cột MST", base["TMS"]["mst_col"])
             cfg.TMS["status_col"] = _col_input(
-                "tms_status", "Cột trạng thái NNT (mặc định AS)", C.TMS["status_col"]
+                "tms_status", "Cột trạng thái NNT (mặc định AS)", base["TMS"]["status_col"]
             )
             cfg.TMS["close_date_col"] = _col_input(
-                "tms_close", "Cột ngày đóng trạng thái (mặc định BB)", C.TMS["close_date_col"]
+                "tms_close", "Cột ngày đóng trạng thái (mặc định BB)", base["TMS"]["close_date_col"]
             )
             cfg.TMS["header_row"] = st.number_input(
-                "Dòng tiêu đề (TMS)", 1, 50, C.TMS["header_row"], key="tms_hdr"
+                "Dòng tiêu đề (TMS)", 1, 50, base["TMS"]["header_row"], key="tms_hdr"
             )
 
         with st.expander("File DS rủi ro (nhiều sheet)", expanded=False):
@@ -85,21 +148,21 @@ def build_runtime_config():
                 "Danh sách rủi ro gồm nhiều sheet, mỗi sheet một bố cục. "
                 "Chỉnh tên sheet / dòng tiêu đề / cột MST / cột (hoặc nhãn) văn bản:"
             )
-            for i, spec in enumerate(cfg.RISK["sheets"]):
+            cfg.RISK["sheets"] = []
+            for i, spec in enumerate(base["RISK"]["sheets"]):
                 st.markdown(f"**Sheet {i + 1}**")
-                spec["name"] = st.text_input(
-                    "Tên sheet", value=spec["name"], key=f"risk_name_{i}"
-                )
-                spec["header_row"] = st.number_input(
-                    "Dòng tiêu đề", 1, 50, spec["header_row"], key=f"risk_hdr_{i}"
-                )
-                spec["mst_col"] = _col_input(
-                    f"risk_mst_{i}", "Cột MST", spec["mst_col"]
-                )
-                spec["doc_col"] = _col_input(
-                    f"risk_doc_{i}", "Cột văn bản (số) hoặc nhãn văn bản (chữ)",
-                    spec["doc_col"],
-                )
+                new_spec = {
+                    "name": st.text_input("Tên sheet", value=spec["name"], key=f"risk_name_{i}"),
+                    "header_row": st.number_input(
+                        "Dòng tiêu đề", 1, 50, spec["header_row"], key=f"risk_hdr_{i}"
+                    ),
+                    "mst_col": _col_input(f"risk_mst_{i}", "Cột MST", spec["mst_col"]),
+                    "doc_col": _col_input(
+                        f"risk_doc_{i}", "Cột văn bản (chữ cái) hoặc nhãn văn bản",
+                        spec["doc_col"],
+                    ),
+                }
+                cfg.RISK["sheets"].append(new_spec)
 
         with st.expander("File hóa đơn điện tử", expanded=False):
             for k, label in [
@@ -110,20 +173,34 @@ def build_runtime_config():
                 ("total_tax", "Tổng tiền thuế"),
             ]:
                 cfg.EINVOICE["cols"][k] = _col_input(
-                    f"einv_{k}", label, C.EINVOICE["cols"][k]
+                    f"einv_{k}", label, base["EINVOICE"]["cols"][k]
                 )
             cfg.EINVOICE["header_row"] = st.number_input(
-                "Dòng tiêu đề (HĐĐT)", 1, 50, C.EINVOICE["header_row"], key="einv_hdr"
+                "Dòng tiêu đề (HĐĐT)", 1, 50, base["EINVOICE"]["header_row"], key="einv_hdr"
             )
 
         with st.expander("Từ khóa mặt hàng nghi ngờ", expanded=False):
             kw = st.text_area(
                 "Mỗi từ khóa 1 dòng",
-                value="\n".join(C.GOODS_KEYWORDS),
+                value="\n".join(base["GOODS_KEYWORDS"]),
                 key="kw",
                 height=180,
             )
             cfg.GOODS_KEYWORDS = [x.strip() for x in kw.splitlines() if x.strip()]
+
+        # --- Lưu / khôi phục cấu hình ---
+        st.divider()
+        c1, c2 = st.columns(2)
+        if c1.button("💾 Lưu cấu hình", width="stretch"):
+            save_user_config(cfg)
+            st.success("Đã lưu. Lần sau mở app sẽ tự dùng lại cấu hình này.")
+        if c2.button("↩️ Về mặc định", width="stretch"):
+            if os.path.exists(USER_CONFIG_PATH):
+                os.remove(USER_CONFIG_PATH)
+            for key in list(st.session_state.keys()):
+                if str(key).startswith(_CFG_WIDGET_PREFIXES):
+                    del st.session_state[key]
+            st.rerun()
 
     return cfg
 
