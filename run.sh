@@ -28,6 +28,6 @@ python -m pip install --quiet -r requirements.txt
 
 # 4) Chạy ứng dụng
 echo ""
-echo "Đang mở ứng dụng trên trình duyệt... (để đóng: nhấn Ctrl+C)"
+echo "Đang mở ứng dụng trên trình duyệt tại http://localhost:8502 (đóng: Ctrl+C)"
 echo ""
-streamlit run app.py
+streamlit run app.py --server.port 8502
