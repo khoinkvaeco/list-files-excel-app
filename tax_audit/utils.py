@@ -121,8 +121,8 @@ def _spreadsheetml_sheets(file) -> list[str]:
     return names or ["Sheet1"]
 
 
-def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
-    """Đọc 1 sheet của file SpreadsheetML thành DataFrame (giữ đúng vị trí cột)."""
+def _spreadsheetml_matrix(file, sheet_name) -> list[list]:
+    """Đọc 1 sheet SpreadsheetML thành ma trận thô (list các dòng), giữ vị trí cột."""
     import xml.etree.ElementTree as ET
 
     root = ET.fromstring(_read_all_bytes(file))
@@ -142,7 +142,7 @@ def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
 
     table = chosen.find(_SSML_NS + "Table")
     if table is None:
-        return pd.DataFrame()
+        return []
 
     rows = []
     max_col = 0
@@ -161,7 +161,12 @@ def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
         if cells:
             max_col = max(max_col, max(cells))
 
-    matrix = [[row.get(c, None) for c in range(1, max_col + 1)] for row in rows]
+    return [[row.get(c, None) for c in range(1, max_col + 1)] for row in rows]
+
+
+def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
+    """Đọc 1 sheet của file SpreadsheetML thành DataFrame (giữ đúng vị trí cột)."""
+    matrix = _spreadsheetml_matrix(file, sheet_name)
     if not matrix:
         return pd.DataFrame()
 
@@ -171,6 +176,40 @@ def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
     header = [("" if h is None else str(h)) for h in matrix[hidx]]
     data = matrix[hidx + 1:]
     return pd.DataFrame(data, columns=_dedupe_columns(header)).astype(object)
+
+
+def read_matrix(file, sheet_name=0) -> list[list]:
+    """Đọc TOÀN BỘ dòng của 1 sheet thành ma trận thô (list các list), không diễn
+    giải dòng tiêu đề. Dùng cho chức năng gộp file.
+    """
+    name = getattr(file, "name", str(file)).lower()
+    if name.endswith(".csv"):
+        _rewind(file)
+        df = pd.read_csv(file, header=None, dtype=object, keep_default_na=False)
+        return df.values.tolist()
+    if _is_spreadsheetml(file):
+        return _spreadsheetml_matrix(file, sheet_name)
+    for engine in _engine_candidates(name):
+        try:
+            _rewind(file)
+            df = pd.read_excel(file, header=None, sheet_name=sheet_name,
+                               dtype=object, engine=engine)
+            return df.where(pd.notna(df), None).values.tolist()
+        except Exception:  # noqa: BLE001
+            continue
+    # fallback HTML
+    df = _read_html_table(file, 1, sheet_name)
+    return [list(df.columns)] + df.where(pd.notna(df), None).values.tolist()
+
+
+def matrix_to_excel_bytes(matrix: list[list], sheet_name: str = "TongHop") -> bytes:
+    """Ghi ma trận thô ra file Excel (không thêm tiêu đề/chỉ số)."""
+    buffer = io.BytesIO()
+    df = pd.DataFrame(matrix)
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False, header=False)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 def _dedupe_columns(names: list[str]) -> list[str]:

@@ -7,6 +7,8 @@ dict các kết quả (mỗi kết quả là 1 DataFrame -> 1 sheet trong file x
 
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 import config as C
@@ -83,6 +85,14 @@ def run_pipeline(
     suspicious = goods.suspicious_goods(data)
     sheets["Mặt hàng nghi ngờ"] = suspicious
     summary["Dòng mặt hàng nghi ngờ"] = len(suspicious)
+    # đếm theo từng nhóm (Không phục vụ SXKD / Quà tặng)
+    if isinstance(cfg.GOODS_KEYWORDS, dict) and "Nhóm nghi ngờ" in data.columns:
+        for label in cfg.GOODS_KEYWORDS:
+            n = data["Nhóm nghi ngờ"].astype(str).str.contains(
+                re.escape(label), na=False
+            ).sum()
+            if n:
+                summary[f"  • {label}"] = int(n)
 
     # --- Tác vụ 9: hóa đơn kê khai trùng -------------------------------
     data = invoice.find_duplicates(
@@ -169,8 +179,8 @@ def _build_processed_sheet(data, main_cols, reconciled, cfg):
     pre = _u.parse_amount_series(data[pretax_col])
     vatv = _u.parse_amount_series(data[vat_col])
 
-    # U (21): Loại hàng hóa nghi ngờ
-    loai_hang = col("Từ khóa khớp")
+    # U (21): Loại hàng hóa nghi ngờ (tên nhóm: Không phục vụ SXKD / Quà tặng)
+    loai_hang = col("Nhóm nghi ngờ")
     # V (22): Trạng thái NNT
     trang_thai = col("Trạng thái NNT")
     # W (23): ngày liên quan (ngày đóng trạng thái)
