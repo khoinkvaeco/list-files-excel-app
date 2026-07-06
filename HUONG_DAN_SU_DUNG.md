@@ -28,7 +28,7 @@ dưới dạng một trang web trong trình duyệt.
 
 Lần chạy đầu sẽ hơi lâu (đang tự cài các thành phần). Sau đó trình duyệt sẽ tự
 mở ra trang công cụ. Nếu không tự mở, vào trình duyệt gõ địa chỉ:
-**http://localhost:8501**
+**http://localhost:8502**
 
 > Muốn tắt: đóng cửa sổ màu đen (Windows) hoặc nhấn `Ctrl + C` (Mac).
 

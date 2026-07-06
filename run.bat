@@ -34,8 +34,9 @@ python -m pip install --quiet -r requirements.txt
 
 REM 4) Mo ung dung tren trinh duyet
 echo.
-echo Dang mo ung dung tren trinh duyet... (de dong: dong cua so nay)
+echo Dang mo ung dung tren trinh duyet tai http://localhost:8502
+echo (De dong: dong cua so nay)
 echo.
-streamlit run app.py
+streamlit run app.py --server.port 8502
 
 pause
