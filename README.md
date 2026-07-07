@@ -1,9 +1,21 @@
 # Công cụ hỗ trợ kiểm tra thuế (Excel)
 
-Ứng dụng web (Streamlit) giúp tự động rà soát bảng kê hóa đơn phục vụ công tác
-kiểm tra thuế: đối chiếu trạng thái người nộp thuế, danh sách doanh nghiệp rủi ro,
-hóa đơn điện tử, phát hiện hóa đơn trùng, mặt hàng không phục vụ SXKD, chênh lệch
-tiền thuế, v.v.
+Tự động rà soát bảng kê hóa đơn phục vụ công tác kiểm tra thuế: đối chiếu trạng
+thái người nộp thuế, danh sách doanh nghiệp rủi ro, hóa đơn điện tử, phát hiện
+hóa đơn trùng, mặt hàng không phục vụ SXKD, chênh lệch tiền thuế, v.v.
+
+## 🚀 Hai cách dùng
+
+**Cách A — Bản chạy ngay, KHÔNG cần cài gì (khuyên dùng để chia sẻ máy khác):**
+Mở file **`dist/CongCuKiemTraThue.html`** bằng trình duyệt (Chrome/Edge/Firefox).
+Toàn bộ xử lý chạy ngay trong trình duyệt, không cần Python/Streamlit, không cần
+mạng — dữ liệu **không rời khỏi máy**. Có đủ 3 tab: Kiểm tra bảng kê, XML→Excel,
+Gộp file. Cấu hình cột lưu vào trình duyệt (localStorage).
+
+**Cách B — Bản Streamlit (Python):** xem mục [Chạy ứng dụng web](#chạy-ứng-dụng-web).
+Cùng logic, thêm một số sheet chi tiết. Dùng khi cần chạy tự động/khối lượng lớn.
+
+> Cả hai bản cho **cùng kết quả** trên cùng dữ liệu (đã đối chiếu số liệu trùng khớp).
 
 ## 12 tác vụ được hỗ trợ
 

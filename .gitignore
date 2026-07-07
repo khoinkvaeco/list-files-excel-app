@@ -24,3 +24,9 @@ user_config.json
 .DS_Store
 .idea/
 .vscode/
+
+# Build phụ / node
+node_modules/
+package-lock.json
+build_html/
+dist/*.xlsx
