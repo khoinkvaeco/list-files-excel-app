@@ -416,28 +416,80 @@ def strip_leading_zeros_series(s: pd.Series) -> pd.Series:
 # ---------------------------------------------------------------------------
 # CHUẨN HÓA NGÀY & SỐ TIỀN
 # ---------------------------------------------------------------------------
-def parse_date(value):
-    """Chuyển giá trị về pandas Timestamp; lỗi trả về NaT.
+def _coerce_date(v):
+    """Chuẩn hóa 1 giá trị ngày, chịu được nhiều kiểu nhập SAI định dạng.
 
-    Nhận diện đồng thời hai kiểu ngày:
-      - ISO / có năm ở đầu (yyyy-mm-dd, yyyy/mm/dd, kèm giờ)  -> dayfirst=False
-      - Kiểu Việt Nam (dd/mm/yyyy, dd-mm-yyyy)                -> dayfirst=True
-    Tránh lỗi hiểu nhầm '2022-02-10' thành ngày 02 tháng 10.
+    Xử lý: datetime sẵn có; số serial Excel; dd/mm/yyyy, yyyy-mm-dd, dd.mm.yyyy,
+    dd-mm-yy; dạng gộp ddmmyyyy / yyyymmdd; chữ 'ngày/tháng/năm'; có kèm giờ.
     """
+    import datetime as _dt
     import warnings
 
+    # đã là ngày/giờ
+    if isinstance(v, (pd.Timestamp, _dt.datetime, _dt.date)):
+        return pd.Timestamp(v)
+    if v is None:
+        return pd.NaT
+
+    # số serial Excel (đếm ngày từ 1899-12-30)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return pd.NaT
+        if pd.isna(f):
+            return pd.NaT
+        if 20000 <= f <= 60000:  # ~ 1954 .. 2064
+            return pd.Timestamp("1899-12-30") + pd.Timedelta(days=f)
+        return pd.NaT
+
+    s = str(v).strip()
+    if s == "" or s.lower() in ("nan", "nat", "none", "null"):
+        return pd.NaT
+
+    # serial dạng chuỗi
+    if re.fullmatch(r"\d+(?:\.0+)?", s):
+        f = float(s)
+        if 20000 <= f <= 60000:
+            return pd.Timestamp("1899-12-30") + pd.Timedelta(days=f)
+
+    # bỏ chữ tiếng Việt và phần giờ
+    low = s.lower().replace("ngày", " ").replace("tháng", " ").replace("năm", " ")
+    low = re.sub(r"\s+\d{1,2}:\d{2}(:\d{2})?.*$", "", low).strip()
+
+    # dạng gộp toàn số: ddmmyyyy / yyyymmdd / ddmmyy
+    only = re.sub(r"\D", "", low)
+    if len(only) == 8:
+        y4 = only[:4]
+        if 1990 <= int(y4) <= 2100:
+            ts = pd.to_datetime(only, format="%Y%m%d", errors="coerce")
+            if not pd.isna(ts):
+                return ts
+        ts = pd.to_datetime(only, format="%d%m%Y", errors="coerce")
+        if not pd.isna(ts):
+            return ts
+    elif len(only) == 6 and re.fullmatch(r"\d{6}", low.replace("/", "").replace(" ", "")):
+        ts = pd.to_datetime(only, format="%d%m%y", errors="coerce")
+        if not pd.isna(ts):
+            return ts
+
+    # chuẩn hóa dấu ngăn cách về '/'
+    norm = re.sub(r"[.\-\s]+", "/", low).strip("/")
+    iso = bool(re.match(r"^\d{4}/\d{1,2}/\d{1,2}", norm))
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        if isinstance(value, pd.Series):
-            s = value.astype("string")
-            iso_mask = s.str.match(r"^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}").fillna(False)
-            day_first = pd.to_datetime(value, errors="coerce", dayfirst=True)
-            iso = pd.to_datetime(value, errors="coerce", dayfirst=False)
-            return day_first.where(~iso_mask, iso)
-        # giá trị đơn
-        text = "" if value is None else str(value)
-        dayfirst = not bool(re.match(r"^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}", text))
-        return pd.to_datetime(value, errors="coerce", dayfirst=dayfirst)
+        warnings.simplefilter("ignore")
+        return pd.to_datetime(norm, errors="coerce", dayfirst=not iso)
+
+
+def parse_date(value):
+    """Chuyển giá trị/Series về pandas Timestamp (datetime64); lỗi -> NaT.
+
+    Chịu được nhiều kiểu nhập sai định dạng (xem ``_coerce_date``). Ưu tiên định
+    dạng Việt Nam (dd/mm/yyyy) nhưng vẫn hiểu ISO (yyyy-mm-dd) đúng.
+    """
+    if isinstance(value, pd.Series):
+        return pd.to_datetime(value.map(_coerce_date), errors="coerce")
+    return _coerce_date(value)
 
 
 def parse_amount(value) -> float:
