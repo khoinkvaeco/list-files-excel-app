@@ -148,12 +148,13 @@ def run_pipeline(
     # --- Sheet "Bảng kê đã xử lý": A-T gốc + 9 cột kết quả U-AC ----------
     bxl = _build_processed_sheet(data, main_cols, reconciled, cfg)
 
-    # --- Sheet "KQ rà soát" theo mẫu (từng loại vi phạm + giải thích) ---
+    # --- Sheet "KQ rà soát" (theo năm + tổng kỳ) và "Dữ liệu chỉ tiêu" --
     kq_df = _build_kq_sheet(data, main_cols, cfg)
+    indicator_data = _build_indicator_data(data, main_cols, cfg)
 
-    # thứ tự sheet: KQ rà soát -> Bảng kê đã xử lý -> dữ liệu tổng hợp -> ...
     ordered = {
         "KQ rà soát": kq_df,
+        "Dữ liệu chỉ tiêu": indicator_data,
         "Bảng kê đã xử lý": bxl,
         "Dữ liệu tổng hợp": data,
     }
@@ -162,98 +163,142 @@ def run_pipeline(
     return {"data": data, "sheets": ordered, "summary": summary}
 
 
-def _build_kq_sheet(data, main_cols, cfg):
-    """Bảng 'KQ rà soát': mỗi dòng 1 loại dấu hiệu + tổng chưa thuế/thuế +
-    số hóa đơn (đã bỏ trùng) + giải thích cách tìm ra."""
-    from tax_audit import utils as _u
-
-    pretax_col = _u.resolve_column(data, main_cols["pretax"])
-    vat_col = _u.resolve_column(data, main_cols["vat"])
-    date_col = _u.resolve_column(data, main_cols["invoice_date"])
-
-    pre = _u.parse_amount_series(data[pretax_col])
-    vat = _u.parse_amount_series(data[vat_col])
-    mst = (
-        data["MST (chuẩn hóa)"]
-        if "MST (chuẩn hóa)" in data.columns
-        else _u.clean_mst_series(data[_u.resolve_column(data, main_cols["mst"])])
-    ).astype(str)
-    no = (
-        data["Số HĐ (bỏ 0 đầu)"]
-        if "Số HĐ (bỏ 0 đầu)" in data.columns
-        else _u.strip_leading_zeros_series(data[_u.resolve_column(data, main_cols["invoice_no"])])
-    ).astype(str)
-    datestr = _u.parse_date(data[date_col]).dt.strftime("%Y-%m-%d").fillna("")
-    invkey = mst.str.strip() + "|" + no.str.strip() + "|" + datestr
-    has_id = (mst.str.strip() != "") | (no.str.strip() != "")
-
-    def agg(mask):
-        m = mask.fillna(False) if hasattr(mask, "fillna") else mask
-        p = float(pre[m].sum())
-        v = float(vat[m].sum())
-        n = int(invkey[m & has_id].nunique())
-        return round(p), round(v), n
-
-    rows = []
-    all_mask = pd.Series(True, index=data.index)
-    p, v, n = agg(all_mask)
-    rows.append(["Bảng kê GTGT (tổng)", p, v, n, "Tổng toàn bộ bảng kê"])
-
-    # Theo trạng thái người nộp thuế (TMS)
+def _indicator_specs(data, cfg):
+    """Danh sách chỉ tiêu kiểm tra: [(nhãn, mask dòng, giải thích)]."""
+    specs = []
     if "Trạng thái NNT" in data.columns:
         stt = data["Trạng thái NNT"].map(lambda x: "" if pd.isna(x) else str(x).strip())
         for val in sorted(set(stt)):
             low = val.lower()
             if low in ("", "nan", "none") or "đang hoạt động" in low:
                 continue
-            p, v, n = agg(stt == val)
-            rows.append([val, p, v, n, "Từ trạng thái NNT (tra TMS theo MST)"])
-
-    # DN rủi ro
+            specs.append((val, stt == val, "Từ trạng thái NNT (tra TMS theo MST)"))
     if "DN rủi ro" in data.columns:
-        p, v, n = agg(data["DN rủi ro"] == True)  # noqa: E712
-        if n or p or v:
-            rows.append(["Hóa đơn của DN rủi ro", p, v, n,
-                         "Từ dò MST với danh sách DN có dấu hiệu rủi ro"])
-
-    # Kê khai trùng
+        m = data["DN rủi ro"] == True  # noqa: E712
+        if m.any():
+            specs.append(("Hóa đơn của DN rủi ro", m,
+                          "Từ dò MST với danh sách DN có dấu hiệu rủi ro"))
     if "HĐ kê khai trùng" in data.columns:
-        p, v, n = agg(data["HĐ kê khai trùng"] == True)  # noqa: E712
-        if n:
-            rows.append(["Hóa đơn kê khai trùng", p, v, n,
-                         "Từ trùng số HĐ + ngày + MST + giá trị chưa thuế"])
-
-    # Mặt hàng nghi ngờ theo nhóm
+        m = data["HĐ kê khai trùng"] == True  # noqa: E712
+        if m.any():
+            specs.append(("Hóa đơn kê khai trùng", m,
+                          "Từ trùng số HĐ + ngày + MST + giá trị chưa thuế"))
     if "Nhóm nghi ngờ" in data.columns and isinstance(cfg.GOODS_KEYWORDS, dict):
         grp = data["Nhóm nghi ngờ"].astype(str)
         for label in cfg.GOODS_KEYWORDS:
-            mask = grp.str.contains(re.escape(label), na=False)
-            if mask.any():
-                p, v, n = agg(mask)
-                rows.append([label, p, v, n, f'Từ loại hàng hóa "{label}"'])
-
-    # Trạng thái hóa đơn điện tử
+            m = grp.str.contains(re.escape(label), na=False)
+            if m.any():
+                specs.append((label, m, f'Từ loại hàng hóa "{label}"'))
     if "Nhóm trạng thái" in data.columns:
         grp = data["Nhóm trạng thái"].map(lambda x: "" if pd.isna(x) else str(x).strip())
         problem = set(cfg.INVOICE_STATUS.keys()) | {cfg.STATUS_NOT_FOUND}
         for val in sorted(set(grp) & problem):
-            p, v, n = agg(grp == val)
-            rows.append([f"Hóa đơn {val}", p, v, n, "Từ trạng thái hóa đơn điện tử"])
-
-    # Rà soát thuế suất 10%/8%
+            specs.append((f"Hóa đơn {val}", grp == val, "Từ trạng thái hóa đơn điện tử"))
     if "Check thuế suất" in data.columns:
         chk = data["Check thuế suất"].astype(str)
-        mask = chk.str.contains("SAI", na=False) | chk.str.contains("rà lại", na=False)
-        if mask.any():
-            p, v, n = agg(mask)
-            rows.append(["Rà soát thuế suất 10%/8%", p, v, n,
-                         "Từ kiểm tra thuế suất theo ngày HĐ + nhóm hàng (chính sách giảm 8%)"])
+        m = chk.str.contains("SAI", na=False) | chk.str.contains("rà lại", na=False)
+        if m.any():
+            specs.append(("Rà soát thuế suất 10%/8%", m,
+                          "Từ kiểm tra thuế suất theo ngày HĐ + nhóm hàng (chính sách giảm 8%)"))
+    return specs
+
+
+def _kq_helpers(data, main_cols):
+    """Trả về (pre, vat, invkey, has_id, year) phục vụ tổng hợp KQ."""
+    from tax_audit import utils as _u
+
+    pretax_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    date_col = _u.resolve_column(data, main_cols["invoice_date"])
+    pre = _u.parse_amount_series(data[pretax_col])
+    vat = _u.parse_amount_series(data[vat_col])
+    mst = (
+        data["MST (chuẩn hóa)"] if "MST (chuẩn hóa)" in data.columns
+        else _u.clean_mst_series(data[_u.resolve_column(data, main_cols["mst"])])
+    ).astype(str)
+    no = (
+        data["Số HĐ (bỏ 0 đầu)"] if "Số HĐ (bỏ 0 đầu)" in data.columns
+        else _u.strip_leading_zeros_series(data[_u.resolve_column(data, main_cols["invoice_no"])])
+    ).astype(str)
+    dt = _u.parse_date(data[date_col])
+    datestr = dt.dt.strftime("%Y-%m-%d").fillna("")
+    invkey = mst.str.strip() + "|" + no.str.strip() + "|" + datestr
+    has_id = (mst.str.strip() != "") | (no.str.strip() != "")
+    year = dt.dt.year
+    return pre, vat, invkey, has_id, year
+
+
+def _build_kq_sheet(data, main_cols, cfg):
+    """Bảng 'KQ rà soát' theo TỪNG NĂM + Tổng kỳ, kèm giải thích."""
+    pre, vat, invkey, has_id, year = _kq_helpers(data, main_cols)
+    years = sorted(int(y) for y in year.dropna().unique())
+
+    def agg(mask):
+        m = mask.fillna(False) if hasattr(mask, "fillna") else mask
+        return (
+            round(float(pre[m].sum())),
+            round(float(vat[m].sum())),
+            int(invkey[m & has_id].nunique()),
+        )
+
+    rows = []
+
+    def emit(label, mask, giaithich):
+        for y in years:
+            ym = mask & (year == y)
+            if ym.fillna(False).any():
+                p, v, n = agg(ym)
+                rows.append([label, str(y), p, v, n, ""])
+        p, v, n = agg(mask)
+        rows.append([label, "Tổng kỳ", p, v, n, giaithich])
+        rows.append(["", "", "", "", "", ""])  # dòng trống ngăn cách
+
+    emit("Bảng kê GTGT (tổng)", pd.Series(True, index=data.index), "Tổng toàn bộ bảng kê")
+    for label, mask, giaithich in _indicator_specs(data, cfg):
+        emit(label, mask, giaithich)
 
     return pd.DataFrame(
         rows,
-        columns=["Chỉ tiêu", "Giá trị chưa thuế", "Thuế GTGT",
+        columns=["Chỉ tiêu", "Năm", "Giá trị chưa thuế", "Thuế GTGT",
                  "Số hóa đơn (đã bỏ trùng)", "Giải thích"],
     )
+
+
+def _build_indicator_data(data, main_cols, cfg):
+    """Sheet 'Dữ liệu chỉ tiêu': các dòng dính ≥1 chỉ tiêu, kèm nhãn chỉ tiêu."""
+    from tax_audit import utils as _u
+
+    specs = _indicator_specs(data, cfg)
+    n = len(data)
+    tags = [[] for _ in range(n)]
+    for label, mask, _gt in specs:
+        arr = mask.fillna(False).to_numpy()
+        for i, flag in enumerate(arr):
+            if flag:
+                tags[i].append(label)
+    tag_str = ["; ".join(t) for t in tags]
+
+    date_col = _u.resolve_column(data, main_cols["invoice_date"])
+    pretax_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    goods_col = _u.resolve_column(data, main_cols["goods"])
+    dt = _u.parse_date(data[date_col])
+
+    out = pd.DataFrame({
+        "Các chỉ tiêu dính": tag_str,
+        "Năm": dt.dt.year,
+        "Số HĐ": data.get("Số HĐ (bỏ 0 đầu)", ""),
+        "Ngày HĐ": dt.dt.strftime("%d/%m/%Y"),
+        "MST người bán": data.get("MST (chuẩn hóa)", ""),
+        "Tên hàng hóa": data[goods_col],
+        "Giá trị chưa thuế": _u.parse_amount_series(data[pretax_col]),
+        "Thuế GTGT": _u.parse_amount_series(data[vat_col]),
+        "Trạng thái NNT": data.get("Trạng thái NNT", ""),
+        "Trạng thái HĐĐT": data.get("Trạng thái hóa đơn", ""),
+        "Check thuế suất": data.get("Check thuế suất", ""),
+    })
+    out = out[pd.Series(tag_str, index=out.index) != ""].reset_index(drop=True)
+    return out
 
 
 def _build_processed_sheet(data, main_cols, reconciled, cfg):
