@@ -307,10 +307,23 @@ def index_to_excel_col(index: int) -> str:
     return out or "A"
 
 
+# Chế độ hiểu tham chiếu cột: "letter" (mặc định, chuỗi 1-3 chữ cái = cột Excel)
+# hoặc "name" (mọi chuỗi đều hiểu là TÊN tiêu đề, không đoán chữ cái cột).
+_COLUMN_MODE = "letter"
+
+
+def set_column_mode(mode: str) -> None:
+    """Đặt cách hiểu tham chiếu cột dạng chuỗi: 'letter' hoặc 'name'."""
+    global _COLUMN_MODE
+    _COLUMN_MODE = "name" if str(mode).lower().startswith("name") else "letter"
+
+
 def is_column_ref(ref) -> bool:
     """Ref có phải là tham chiếu CỘT (số thứ tự hoặc chữ cái Excel) không?"""
     if isinstance(ref, int):
         return True
+    if _COLUMN_MODE == "name":
+        return False
     return isinstance(ref, str) and bool(re.fullmatch(r"[A-Za-z]{1,3}", ref.strip()))
 
 
@@ -318,13 +331,18 @@ def resolve_column(df: pd.DataFrame, ref: ColumnRef) -> str:
     """Trả về TÊN cột thực tế trong ``df`` từ tham chiếu ``ref``.
 
     - int              : vị trí cột đếm từ 1.
-    - chữ cái Excel     : 'A','B','L','AA'... (1-3 chữ cái) -> vị trí cột.
+    - chữ cái Excel     : 'A','B','L','AA'... (1-3 chữ cái) -> vị trí cột
+                          (chỉ khi chế độ = 'letter').
     - chuỗi khác        : khớp theo TÊN tiêu đề (khớp chính xác, rồi "chứa").
     """
     idx = None
     if isinstance(ref, int):
         idx = ref - 1
-    elif isinstance(ref, str) and re.fullmatch(r"[A-Za-z]{1,3}", ref.strip()):
+    elif (
+        isinstance(ref, str)
+        and _COLUMN_MODE != "name"
+        and re.fullmatch(r"[A-Za-z]{1,3}", ref.strip())
+    ):
         idx = excel_col_to_index(ref) - 1
 
     if idx is not None:

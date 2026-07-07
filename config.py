@@ -127,6 +127,33 @@ INVOICE_STATUS = {
 STATUS_NOT_FOUND = "Không tìm thấy"
 
 # ---------------------------------------------------------------------------
+# BỘ MẶC ĐỊNH KHI CHỈ ĐỊNH CỘT THEO TÊN TIÊU ĐỀ (khớp gần đúng "chứa")
+# Dùng khi người dùng chọn kiểu cấu hình "Theo tên tiêu đề". Có thể sửa trên
+# giao diện cho khớp tên cột thực tế trong file.
+# ---------------------------------------------------------------------------
+MAIN_NAME_COLS = {
+    "mst": "Mã số thuế người bán",
+    "invoice_no": "Số hóa đơn",
+    "invoice_date": "Ngày hóa đơn",
+    "pretax": "chưa có thuế",
+    "vat": "Thuế GTGT",
+    "goods": "hàng",  # khớp cả "Tên hàng hóa" lẫn "Mặt hàng"
+}
+TMS_NAME_COLS = {
+    "mst_col": "Mã số thuế",
+    "status_col": "Trạng thái ĐKT tổ chức",
+    "close_date_col": "Ngày đóng trạng thái tổ chức",
+}
+EINVOICE_NAME_COLS = {
+    "mst": "Mã số thuế người bán",
+    "invoice_no": "Số hóa đơn",
+    "invoice_date": "Ngày lập",
+    "status": "Trạng thái hóa đơn",
+    "total_tax": "Tổng tiền thuế",
+}
+RISK_NAME_COLS = {"mst_col": "Mã số thuế", "doc_col": "Văn bản"}
+
+# ---------------------------------------------------------------------------
 # 7) CHÍNH SÁCH GIẢM THUẾ GTGT 10% -> 8%
 # ---------------------------------------------------------------------------
 # Các giai đoạn được giảm còn 8% (đã gộp khoảng liền kề). Ngoài các khoảng này
