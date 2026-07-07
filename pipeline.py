@@ -137,6 +137,13 @@ def run_pipeline(
     _pre = _u.parse_amount_series(data[pretax_col])
     _vat = _u.parse_amount_series(data[vat_col])
     _dates = _u.parse_date(data[date_col])
+    # cảnh báo dòng có ngày HĐ nhưng KHÔNG đọc được (nhập sai định dạng nặng)
+    _raw_has_date = data[date_col].map(
+        lambda x: str(x).strip() not in ("", "nan", "NaT", "None", "null")
+    )
+    _bad_dates = int((_dates.isna() & _raw_has_date).sum())
+    if _bad_dates:
+        summary["Dòng ngày HĐ không đọc được (cần sửa tay)"] = _bad_dates
     _goods = data[goods_col].astype(str)
     _periods = getattr(cfg, "VAT_REDUCED_PERIODS", [])
     _excl = getattr(cfg, "VAT_EXCLUDE_KEYWORDS", {})
