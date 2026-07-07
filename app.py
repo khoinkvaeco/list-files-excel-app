@@ -47,21 +47,51 @@ def save_user_config(cfg) -> None:
         "EINVOICE": {"header_row": cfg.EINVOICE["header_row"], "cols": cfg.EINVOICE["cols"]},
         "RISK": {"sheets": cfg.RISK["sheets"]},
         "GOODS_KEYWORDS": cfg.GOODS_KEYWORDS,
+        "COL_MODE": getattr(cfg, "_col_mode", "letter"),
     }
     with open(USER_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def _base_config() -> dict:
-    """Giá trị mặc định cho các ô cấu hình = config gốc phủ bởi cấu hình đã lưu."""
+def saved_col_mode() -> str:
+    return load_user_config().get("COL_MODE", "letter")
+
+
+def _risk_name_sheets():
+    """Sheet rủi ro mặc định khi chỉ định cột theo TÊN (giữ nhãn cố định ở sheet 2,3)."""
+    out = []
+    for i, sp in enumerate(C.RISK["sheets"]):
+        ns = dict(sp)
+        ns["mst_col"] = C.RISK_NAME_COLS["mst_col"]
+        ns["doc_col"] = C.RISK_NAME_COLS["doc_col"] if i == 0 else sp["doc_col"]
+        out.append(ns)
+    return out
+
+
+def _base_config(mode: str) -> dict:
+    """Giá trị mặc định cho các ô cấu hình theo CHẾ ĐỘ (letter/name), phủ bởi
+    cấu hình đã lưu (chỉ khi cùng chế độ)."""
+    if mode == "name":
+        base = {
+            "MAIN": {"header_row": C.MAIN["header_row"], "cols": dict(C.MAIN_NAME_COLS)},
+            "TMS": {"header_row": C.TMS["header_row"], **C.TMS_NAME_COLS},
+            "EINVOICE": {"header_row": C.EINVOICE["header_row"], "cols": dict(C.EINVOICE_NAME_COLS)},
+            "RISK": {"sheets": _risk_name_sheets()},
+            "GOODS_KEYWORDS": copy.deepcopy(C.GOODS_KEYWORDS),
+        }
+    else:
+        base = {
+            "MAIN": copy.deepcopy(C.MAIN),
+            "TMS": copy.deepcopy(C.TMS),
+            "EINVOICE": copy.deepcopy(C.EINVOICE),
+            "RISK": copy.deepcopy(C.RISK),
+            "GOODS_KEYWORDS": copy.deepcopy(C.GOODS_KEYWORDS),
+        }
+
     saved = load_user_config()
-    base = {
-        "MAIN": copy.deepcopy(C.MAIN),
-        "TMS": copy.deepcopy(C.TMS),
-        "EINVOICE": copy.deepcopy(C.EINVOICE),
-        "RISK": copy.deepcopy(C.RISK),
-        "GOODS_KEYWORDS": copy.deepcopy(C.GOODS_KEYWORDS),
-    }
+    if saved.get("COL_MODE", "letter") != mode:
+        return base  # cấu hình đã lưu thuộc chế độ khác -> dùng mặc định của chế độ này
+
     if saved.get("MAIN"):
         base["MAIN"]["header_row"] = saved["MAIN"].get("header_row", base["MAIN"]["header_row"])
         base["MAIN"]["cols"].update(saved["MAIN"].get("cols", {}))
@@ -94,7 +124,6 @@ def build_runtime_config():
     Không deepcopy cả module ``config`` (module không thể copy/pickle) — chỉ sao
     chép các giá trị dữ liệu cần thiết vào một namespace có thể chỉnh sửa.
     """
-    base = _base_config()
     cfg = types.SimpleNamespace(
         MAIN=copy.deepcopy(C.MAIN),
         TMS=copy.deepcopy(C.TMS),
@@ -111,11 +140,34 @@ def build_runtime_config():
         st.header("⚙️ Cấu hình cột")
         if os.path.exists(USER_CONFIG_PATH):
             st.caption("✅ Đang dùng cấu hình đã lưu của bạn.")
-        st.caption(
-            "Nhập **chữ cái cột Excel** (A, B, C, … như trên thanh cột Excel). "
-            "Cũng chấp nhận số thứ tự cột hoặc tên tiêu đề. "
-            "Để mặc định nếu file đúng bố cục chuẩn."
+
+        _mode_labels = ["Chữ cái cột Excel (A, B, C…)", "Theo tên tiêu đề"]
+        _default_mode_idx = 1 if saved_col_mode() == "name" else 0
+        mode_label = st.radio(
+            "Kiểu chỉ định cột", _mode_labels, index=_default_mode_idx, key="col_mode_radio"
         )
+        col_mode = "name" if mode_label == _mode_labels[1] else "letter"
+        cfg._col_mode = col_mode
+
+        # đổi kiểu chỉ định -> xóa giá trị ô cũ để nạp lại mặc định của kiểu mới
+        if st.session_state.get("_prev_col_mode") not in (None, col_mode):
+            for key in list(st.session_state.keys()):
+                if str(key).startswith(_CFG_WIDGET_PREFIXES):
+                    del st.session_state[key]
+        st.session_state["_prev_col_mode"] = col_mode
+
+        if col_mode == "name":
+            st.caption(
+                "Nhập **tên tiêu đề cột** (khớp gần đúng, ví dụ 'Ngày hóa đơn', "
+                "'Mã số thuế người bán'). Nhớ đặt đúng **Dòng tiêu đề** của file."
+            )
+        else:
+            st.caption(
+                "Nhập **chữ cái cột Excel** (A, B, C, … như trên thanh cột Excel). "
+                "Cũng chấp nhận số thứ tự cột. Để mặc định nếu file đúng bố cục chuẩn."
+            )
+
+        base = _base_config(col_mode)
 
         with st.expander("File dữ liệu chính", expanded=False):
             for k, label in [
@@ -505,6 +557,8 @@ def render_merge():
 # ĐIỀU HƯỚNG
 # ---------------------------------------------------------------------------
 cfg = build_runtime_config()
+# áp dụng cách hiểu tham chiếu cột (chữ cái Excel hay tên tiêu đề) cho toàn bộ xử lý
+utils.set_column_mode(getattr(cfg, "_col_mode", "letter"))
 tab_audit, tab_xml, tab_merge = st.tabs(
     ["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel", "📁 Gộp file Excel"]
 )

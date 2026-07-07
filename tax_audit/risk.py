@@ -41,15 +41,16 @@ def build_risk_lookup(file, cfg: dict) -> pd.DataFrame:
         mst = utils.clean_mst_series(df[mst_col])
 
         doc_ref = spec.get("doc_col")
-        if utils.is_column_ref(doc_ref):
-            # tham chiếu cột (số thứ tự hoặc chữ cái Excel) -> lấy văn bản theo dòng
+        # thử coi doc_col là 1 CỘT (số thứ tự / chữ cái / tên tiêu đề); nếu không
+        # khớp được cột nào thì coi là NHÃN văn bản cố định cho cả sheet.
+        doc = None
+        if doc_ref not in (None, ""):
             try:
                 doc_col = utils.resolve_column(df, doc_ref)
                 doc = df[doc_col].astype(str).str.strip()
             except (IndexError, KeyError):
-                doc = pd.Series([str(name)] * len(df))
-        else:
-            # nhãn văn bản cố định cho cả sheet
+                doc = None
+        if doc is None:
             doc = pd.Series([str(doc_ref) if doc_ref else str(name)] * len(df))
 
         part = pd.DataFrame(

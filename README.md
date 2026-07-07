@@ -70,9 +70,12 @@ Trình duyệt sẽ mở giao diện. Các bước sử dụng:
 
 Vị trí cột mặc định được khai báo trong `config.py`. Quy ước:
 
-- **Chữ cái cột Excel** → `"A"`, `"B"`, `"L"`, `"AA"`… đúng như chữ cái cột hiển thị trên Excel (dễ đối chiếu/sửa nhất).
-- **Số nguyên** → vị trí cột đếm từ 1 (vd `12` = cột thứ 12).
-- **Chuỗi khác** → khớp theo tên tiêu đề cột (khớp gần đúng).
+Trên giao diện có lựa chọn **"Kiểu chỉ định cột"**:
+
+- **Chữ cái cột Excel** → `"A"`, `"B"`, `"L"`, `"AA"`… đúng như chữ cái cột trên Excel; hoặc số thứ tự (đếm từ 1).
+- **Theo tên tiêu đề** → nhập tên cột (khớp gần đúng "chứa"), ví dụ `"Ngày hóa đơn"`, `"Mã số thuế người bán"`, `"chưa có thuế"`. Nhớ đặt đúng **Dòng tiêu đề** của file. Ở chế độ này, chuỗi ngắn không bị hiểu nhầm thành chữ cái cột.
+
+Cả hai kiểu đều **lưu được** (nút 💾) và tự dùng lại lần sau.
 
 Mặc định đã căn theo bộ file thực tế:
 
