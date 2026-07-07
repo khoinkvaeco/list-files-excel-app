@@ -478,7 +478,42 @@ def _coerce_date(v):
     iso = bool(re.match(r"^\d{4}/\d{1,2}/\d{1,2}", norm))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return pd.to_datetime(norm, errors="coerce", dayfirst=not iso)
+        ts = pd.to_datetime(norm, errors="coerce", dayfirst=not iso)
+    if pd.isna(ts):
+        ts = _salvage_date(norm)  # cứu các kiểu nhập sai (năm thừa số, thừa dấu)
+    return ts
+
+
+def _salvage_date(norm: str):
+    """Cứu ngày nhập sai: năm thừa số ('20222'->2022), thừa dấu/nhóm
+    ('29/2/02/2024'->29/02/2024). Chỉ nhận khi ra được ngày hợp lệ, hợp lý.
+    """
+    nums = [p for p in norm.split("/") if p.isdigit()]
+    if len(nums) < 3:
+        return pd.NaT
+    # năm = nhóm cuối; nếu >4 chữ số, lấy 4 chữ số tạo năm hợp lý
+    y = nums[-1]
+    if len(y) > 4:
+        for cand in (y[:4], y[-4:]):
+            if 1990 <= int(cand) <= 2100:
+                y = cand
+                break
+    yi = 2000 + int(y) if len(y) == 2 else int(y)
+    if not (1990 <= yi <= 2100):
+        return pd.NaT
+    try:
+        day = int(nums[0])
+    except ValueError:
+        return pd.NaT
+    # tháng = nhóm giữa hợp lệ đầu tiên cho ra ngày thật
+    for mid in nums[1:-1]:
+        mi = int(mid)
+        if 1 <= mi <= 12:
+            try:
+                return pd.Timestamp(year=yi, month=mi, day=day)
+            except ValueError:
+                continue
+    return pd.NaT
 
 
 def parse_date(value):

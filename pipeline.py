@@ -124,7 +124,14 @@ def run_pipeline(
         sheets["HĐ sai trạng thái"] = problems
         sheets["Đối chiếu thuế theo HĐ"] = reconciled
         sheets["Chênh lệch tiền thuế"] = diffs
-        summary["HĐ bị thay thế/xóa bỏ/không tìm thấy"] = len(problems)
+        # tách "không tìm thấy" (thường do chưa có trong file HĐĐT tải lên) khỏi
+        # các trạng thái vi phạm thực sự (thay thế/điều chỉnh/xóa bỏ)
+        if "Nhóm trạng thái" in problems.columns and not problems.empty:
+            nf = int((problems["Nhóm trạng thái"] == cfg.STATUS_NOT_FOUND).sum())
+        else:
+            nf = 0
+        summary["HĐ bị thay thế/điều chỉnh/xóa bỏ"] = len(problems) - nf
+        summary["HĐ không tìm thấy trên HĐĐT"] = nf
         summary["HĐ có chênh lệch tiền thuế"] = len(diffs)
 
     # --- Kiểm tra thuế suất (dùng cho cột AC và sheet KQ) --------------
