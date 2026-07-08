@@ -545,6 +545,28 @@ def parse_date(value):
     return _coerce_date(value)
 
 
+def extract_year(value):
+    """Trích NĂM (int) từ một giá trị bất kỳ: ô ngày, hoặc nhãn kỳ như
+    'T1.2022', 'Tổng hợp 2022', '01/2022', '2023'. Trả về None nếu không thấy."""
+    import datetime as _dt
+
+    if value is None:
+        return None
+    if isinstance(value, (pd.Timestamp, _dt.datetime, _dt.date)):
+        return int(value.year)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        f = float(value)
+        if 1990 <= f <= 2100:
+            return int(f)
+        if 20000 <= f <= 60000:  # serial Excel
+            dd = parse_date(value)
+            return int(dd.year) if pd.notna(dd) else None
+        return None
+    s = str(value)
+    yrs = [int(y) for y in re.findall(r"(?:19|20)\d{2}", s) if 1990 <= int(y) <= 2100]
+    return yrs[-1] if yrs else None
+
+
 def parse_amount(value) -> float:
     """Chuyển giá trị tiền (có thể chứa dấu phẩy ngăn cách) về float."""
     if value is None:

@@ -177,8 +177,11 @@ def build_runtime_config():
                 ("pretax", "Giá trị chưa thuế"),
                 ("vat", "Thuế GTGT"),
                 ("goods", "Tên hàng hóa"),
+                ("period", "Cột lấy năm kiểm tra (tùy chọn, vd cột kỳ 'T1.2022')"),
             ]:
-                cfg.MAIN["cols"][k] = _col_input(f"main_{k}", label, base["MAIN"]["cols"][k])
+                cfg.MAIN["cols"][k] = _col_input(
+                    f"main_{k}", label, base["MAIN"]["cols"].get(k, "")
+                )
             cfg.MAIN["header_row"] = st.number_input(
                 "Dòng tiêu đề", 1, 50, base["MAIN"]["header_row"], key="main_hdr"
             )
