@@ -151,6 +151,24 @@ def run_pipeline(
     _bad_dates = int((_dates.isna() & _raw_has_date).sum())
     if _bad_dates:
         summary["Dòng ngày HĐ không đọc được (cần sửa tay)"] = _bad_dates
+
+    # NĂM KIỂM TRA cho KQ/chỉ tiêu: ưu tiên cột "period" (vd cột kỳ 'T1.2022'),
+    # nếu không có thì lấy năm theo ngày hóa đơn.
+    _date_year = _dates.dt.year
+    _period_ref = main_cols.get("period")
+    _audit_year = None
+    if _period_ref:
+        try:
+            _pcol = _u.resolve_column(data, _period_ref)
+            _audit_year = data[_pcol].map(_u.extract_year)
+        except (KeyError, IndexError):
+            _audit_year = None
+    if _audit_year is not None:
+        _combined = _audit_year.where(_audit_year.notna(), _date_year)
+    else:
+        _combined = _date_year
+    data["Năm kiểm tra"] = pd.to_numeric(_combined, errors="coerce")
+
     _goods = data[goods_col].astype(str)
     _periods = getattr(cfg, "VAT_REDUCED_PERIODS", [])
     _excl = getattr(cfg, "VAT_EXCLUDE_KEYWORDS", {})
@@ -238,7 +256,7 @@ def _kq_helpers(data, main_cols):
     datestr = dt.dt.strftime("%Y-%m-%d").fillna("")
     invkey = mst.str.strip() + "|" + no.str.strip() + "|" + datestr
     has_id = (mst.str.strip() != "") | (no.str.strip() != "")
-    year = dt.dt.year
+    year = data["Năm kiểm tra"] if "Năm kiểm tra" in data.columns else dt.dt.year
     return pre, vat, invkey, has_id, year
 
 
@@ -298,9 +316,10 @@ def _build_indicator_data(data, main_cols, cfg):
     goods_col = _u.resolve_column(data, main_cols["goods"])
     dt = _u.parse_date(data[date_col])
 
+    year_series = data["Năm kiểm tra"] if "Năm kiểm tra" in data.columns else dt.dt.year
     out = pd.DataFrame({
         "Các chỉ tiêu dính": tag_str,
-        "Năm": dt.dt.year,
+        "Năm": year_series,
         "Số HĐ": data.get("Số HĐ (bỏ 0 đầu)", ""),
         "Ngày HĐ": dt.dt.strftime("%d/%m/%Y"),
         "MST người bán": data.get("MST (chuẩn hóa)", ""),

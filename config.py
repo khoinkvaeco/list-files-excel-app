@@ -29,6 +29,8 @@ MAIN = {
         "pretax": "Q",       # cột Q - Giá trị HHDV mua vào chưa có thuế GTGT
         "vat": "S",          # cột S - Tiền thuế GTGT
         "goods": "M",        # cột M - Tên hàng hóa, dịch vụ
+        "period": "",        # (tùy chọn) cột lấy NĂM KIỂM TRA cho KQ (vd cột kỳ
+                             # "T1.2022"). Để trống -> lấy năm theo ngày hóa đơn.
     },
 }
 
@@ -138,6 +140,7 @@ MAIN_NAME_COLS = {
     "pretax": "chưa có thuế",
     "vat": "Thuế GTGT",
     "goods": "hàng",  # khớp cả "Tên hàng hóa" lẫn "Mặt hàng"
+    "period": "",     # (tùy chọn) tên cột lấy năm kiểm tra
 }
 TMS_NAME_COLS = {
     "mst_col": "Mã số thuế",
