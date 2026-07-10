@@ -553,16 +553,26 @@ function buildSheets(recs,origHeader,cfg,meta){
   const mstS=[['MST','Số dòng hóa đơn']];Object.keys(cnt).sort().forEach(k=>mstS.push([k,cnt[k]]));
   sheets['MST tra cứu']=mstS;
 
-  /* các sheet cảnh báo */
-  const flt=(hdr,test,mapRow)=>{const a=[hdr];recs.filter(test).forEach(r=>a.push(mapRow(r)));return a;};
-  sheets['Mặt hàng nghi ngờ']=flt(['Số HĐ','Ngày HĐ','MST','Tên hàng hóa','Nhóm nghi ngờ','Từ khóa khớp'],r=>r.grp,r=>[r.no,ddmy(r.dd),r.mst,r.goods==null?'':r.goods,r.grp,r.kw]);
-  const dupSheet=flt(['Nhóm trùng','Số HĐ','Ngày HĐ','MST','Giá trị chưa thuế','Thuế GTGT'],r=>r.dup,r=>[r.dupTag,r.no,ddmy(r.dd),r.mst,r.pre,r.vat]);
-  const dupHead=dupSheet[0];dupSheet.splice(0,1);dupSheet.sort((a,b)=>String(a[0]).localeCompare(String(b[0])));dupSheet.unshift(dupHead);
+  /* các sheet CHI TIẾT chuẩn: 6 cột + cột riêng của loại */
+  const CORE=['Số hóa đơn','Ngày hóa đơn','MST người bán','Tên hàng hóa dịch vụ','Giá trị chưa thuế','Thuế GTGT'];
+  const daysAfter=r=>(r.dd&&r.close)?Math.round((Date.UTC(r.dd.y,r.dd.m-1,r.dd.d)-Date.UTC(r.close.y,r.close.m-1,r.close.d))/86400000):'';
+  function detail(test,extras){
+    const out=[CORE.concat(extras.map(e=>e[0]))];
+    for(const r of recs){if(!test(r))continue;out.push([r.no,ddmy(r.dd),r.mst,r.goods==null?'':r.goods,r.pre,r.vat].concat(extras.map(e=>e[1](r))));}
+    return out;
+  }
+  if(recs.some(r=>r.afterClose))
+    sheets['HĐ xuất sau ngày đóng']=detail(r=>r.afterClose,[['Trạng thái NNT',r=>r.statusNNT||''],['Ngày đóng trạng thái',r=>r.close?ddmy(r.close):''],['Số ngày xuất sau khi đóng',daysAfter]]);
+  if(recs.some(r=>r.riskDoc))
+    sheets['HĐ của DN rủi ro']=detail(r=>!!r.riskDoc,[['Văn bản rủi ro',r=>r.riskDoc||'']]);
+  sheets['Mặt hàng nghi ngờ']=detail(r=>r.grp,[['Nhóm nghi ngờ',r=>r.grp],['Từ khóa khớp',r=>r.kw]]);
+  const dupSheet=detail(r=>r.dup,[['Nhóm trùng',r=>r.dupTag||''],['Số bản ghi trùng',r=>r.dupN||'']]);
+  const dupHead=dupSheet.shift();dupSheet.sort((a,b)=>String(a[6]).localeCompare(String(b[6])));dupSheet.unshift(dupHead);
   sheets['HĐ kê khai trùng']=dupSheet;
   if(meta.hasEinv){
     const prob=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound]);
-    sheets['HĐ sai trạng thái']=flt(['Số HĐ','Ngày HĐ','MST','Nhóm trạng thái','Trạng thái gốc'],r=>prob.has(r.statusGroup),r=>[r.no,ddmy(r.dd),r.mst,r.statusGroup,r.einvStatus||'']);
-    sheets['Chênh lệch tiền thuế']=flt(['Số HĐ','Ngày HĐ','MST','Thuế GTGT (BK)','Tổng tiền thuế (HĐĐT)','Chênh lệch'],r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,r=>[r.no,ddmy(r.dd),r.mst,r.vat,r.totalTax,r.chenh]);
+    sheets['HĐ sai trạng thái']=detail(r=>prob.has(r.statusGroup),[['Nhóm trạng thái',r=>r.statusGroup],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
+    sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Chênh lệch (theo HĐ)',r=>r.chenh]]);
   }
   return {sheets,summary};
 }

@@ -65,26 +65,35 @@ def run_pipeline(
             data, tms_lookup, main_cols["invoice_date"]
         )
         sheets["Trạng thái NNT (TMS)"] = tms_lookup
-        after = taxpayer.invoices_after_close(data)
-        sheets["HĐ xuất sau ngày đóng"] = after
-        summary["HĐ xuất sau ngày đóng trạng thái"] = len(after)
+        _m = data["Cảnh báo HĐ sau ngày đóng"] == True  # noqa: E712
+        sheets["HĐ xuất sau ngày đóng"] = _detail_sheet(data, main_cols, _m, [
+            ("Trạng thái NNT", "Trạng thái NNT"),
+            ("Ngày đóng trạng thái", "Ngày đóng trạng thái"),
+            ("Số ngày xuất sau khi đóng", "Số ngày xuất sau khi đóng"),
+        ])
+        summary["HĐ xuất sau ngày đóng trạng thái"] = int(_m.sum())
 
     # --- Tác vụ 6: dò danh sách rủi ro ---------------------------------
     if risk_file is not None:
         risk_lookup = risk.build_risk_lookup(risk_file, cfg.RISK)
         data = risk.enrich_with_risk(data, risk_lookup)
-        risky = risk.risky_invoices(data)
         sheets["DS MST rủi ro"] = risk_lookup
-        sheets["HĐ của DN rủi ro"] = risky
-        summary["HĐ của DN có dấu hiệu rủi ro"] = len(risky)
+        _m = data["DN rủi ro"] == True  # noqa: E712
+        sheets["HĐ của DN rủi ro"] = _detail_sheet(data, main_cols, _m, [
+            ("Văn bản rủi ro", "Văn bản rủi ro"),
+        ])
+        summary["HĐ của DN có dấu hiệu rủi ro"] = int(_m.sum())
 
     # --- Tác vụ 7: mặt hàng không phục vụ SXKD -------------------------
     data = goods.flag_non_business_goods(
         data, main_cols["goods"], cfg.GOODS_KEYWORDS
     )
-    suspicious = goods.suspicious_goods(data)
-    sheets["Mặt hàng nghi ngờ"] = suspicious
-    summary["Dòng mặt hàng nghi ngờ"] = len(suspicious)
+    _m = data["Mặt hàng nghi ngờ"] == True  # noqa: E712
+    sheets["Mặt hàng nghi ngờ"] = _detail_sheet(data, main_cols, _m, [
+        ("Nhóm nghi ngờ", "Nhóm nghi ngờ"),
+        ("Từ khóa khớp", "Từ khóa khớp"),
+    ])
+    summary["Dòng mặt hàng nghi ngờ"] = int(_m.sum())
     # đếm theo từng nhóm (Không phục vụ SXKD / Quà tặng)
     if isinstance(cfg.GOODS_KEYWORDS, dict) and "Nhóm nghi ngờ" in data.columns:
         for label in cfg.GOODS_KEYWORDS:
@@ -102,9 +111,15 @@ def run_pipeline(
         main_cols["mst"],
         main_cols["pretax"],
     )
-    dups = invoice.duplicate_invoices(data)
-    sheets["HĐ kê khai trùng"] = dups
-    summary["Dòng HĐ kê khai trùng"] = len(dups)
+    _m = data["HĐ kê khai trùng"] == True  # noqa: E712
+    dup_sheet = _detail_sheet(data, main_cols, _m, [
+        ("Nhóm trùng", "Nhóm trùng"),
+        ("Số bản ghi trùng", "Số bản ghi trùng"),
+    ])
+    if not dup_sheet.empty:
+        dup_sheet = dup_sheet.sort_values("Nhóm trùng").reset_index(drop=True)
+    sheets["HĐ kê khai trùng"] = dup_sheet
+    summary["Dòng HĐ kê khai trùng"] = int(_m.sum())
 
     # --- Tác vụ 10, 11, 12: tra HĐĐT -----------------------------------
     # bỏ qua nếu file HĐĐT rỗng (không có dòng dữ liệu) để tránh gắn nhầm
@@ -118,21 +133,44 @@ def run_pipeline(
             cfg.INVOICE_STATUS,
             cfg.STATUS_NOT_FOUND,
         )
-        problems = einvoice.status_problems(data, main_cols)
         reconciled = einvoice.reconcile_tax(data, main_cols)
-        diffs = einvoice.tax_differences(reconciled)
-        sheets["HĐ sai trạng thái"] = problems
         sheets["Đối chiếu thuế theo HĐ"] = reconciled
-        sheets["Chênh lệch tiền thuế"] = diffs
-        # tách "không tìm thấy" (thường do chưa có trong file HĐĐT tải lên) khỏi
-        # các trạng thái vi phạm thực sự (thay thế/điều chỉnh/xóa bỏ)
-        if "Nhóm trạng thái" in problems.columns and not problems.empty:
-            nf = int((problems["Nhóm trạng thái"] == cfg.STATUS_NOT_FOUND).sum())
-        else:
-            nf = 0
-        summary["HĐ bị thay thế/điều chỉnh/xóa bỏ"] = len(problems) - nf
-        summary["HĐ không tìm thấy trên HĐĐT"] = nf
-        summary["HĐ có chênh lệch tiền thuế"] = len(diffs)
+
+        # ánh xạ chênh lệch (mức hóa đơn) về từng dòng để lọc chi tiết
+        from tax_audit import utils as _u2
+        _dcol = _u2.resolve_column(data, main_cols["invoice_date"])
+        _rk = (reconciled["MST (chuẩn hóa)"].astype(str) + "|"
+               + reconciled["Số HĐ (bỏ 0 đầu)"].astype(str) + "|"
+               + reconciled["Ngày HĐ"].astype(str))
+        _rmap = dict(zip(_rk, reconciled["Chênh lệch tiền thuế"]))
+        _key = (data["MST (chuẩn hóa)"].astype(str) + "|"
+                + data["Số HĐ (bỏ 0 đầu)"].astype(str) + "|"
+                + _u2.parse_date(data[_dcol]).dt.strftime("%Y-%m-%d"))
+        data["Chênh lệch (theo HĐ)"] = _key.map(_rmap)
+
+        # HĐ sai trạng thái (mức dòng, kèm 6 cột chuẩn)
+        _prob_labels = set(cfg.INVOICE_STATUS.keys()) | {cfg.STATUS_NOT_FOUND}
+        _mp = data["Nhóm trạng thái"].isin(_prob_labels)
+        sheets["HĐ sai trạng thái"] = _detail_sheet(data, main_cols, _mp, [
+            ("Nhóm trạng thái", "Nhóm trạng thái"),
+            ("Trạng thái hóa đơn (gốc)", "Trạng thái hóa đơn"),
+            ("Tổng tiền thuế (HĐĐT)", "Tổng tiền thuế (HĐĐT)"),
+        ])
+        # chênh lệch tiền thuế (mức dòng)
+        _md = data["Chênh lệch (theo HĐ)"].abs() > 0.5
+        sheets["Chênh lệch tiền thuế"] = _detail_sheet(data, main_cols, _md, [
+            ("Tổng tiền thuế (HĐĐT)", "Tổng tiền thuế (HĐĐT)"),
+            ("Chênh lệch (theo HĐ)", "Chênh lệch (theo HĐ)"),
+        ])
+
+        # đếm theo HÓA ĐƠN (khử trùng dòng)
+        def _ninv(mask):
+            k = data.loc[mask, "MST (chuẩn hóa)"].astype(str) + "|" + data.loc[mask, "Số HĐ (bỏ 0 đầu)"].astype(str)
+            return int(k.nunique())
+        nf_mask = data["Nhóm trạng thái"] == cfg.STATUS_NOT_FOUND
+        summary["HĐ bị thay thế/điều chỉnh/xóa bỏ"] = _ninv(_mp & ~nf_mask)
+        summary["HĐ không tìm thấy trên HĐĐT"] = _ninv(nf_mask)
+        summary["HĐ có chênh lệch tiền thuế"] = _ninv(_md)
 
     # --- Kiểm tra thuế suất (dùng cho cột AC và sheet KQ) --------------
     from tax_audit import utils as _u, vat_policy
@@ -193,6 +231,33 @@ def run_pipeline(
     ordered.update(sheets)
 
     return {"data": data, "sheets": ordered, "summary": summary}
+
+
+def _detail_sheet(data, main_cols, mask, extras=None):
+    """Sheet chi tiết chuẩn: 6 cột (số HĐ, ngày HĐ, MST người bán, tên hàng hóa,
+    giá trị chưa thuế, thuế GTGT) + các cột riêng của loại (``extras`` = list
+    (nhãn hiển thị, tên cột trong data))."""
+    from tax_audit import utils as _u
+
+    sub = data[mask.fillna(False)] if hasattr(mask, "fillna") else data[mask]
+    date_col = _u.resolve_column(data, main_cols["invoice_date"])
+    goods_col = _u.resolve_column(data, main_cols["goods"])
+    pre_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    no = sub["Số HĐ (bỏ 0 đầu)"] if "Số HĐ (bỏ 0 đầu)" in sub.columns else sub[_u.resolve_column(data, main_cols["invoice_no"])]
+    mst = sub["MST (chuẩn hóa)"] if "MST (chuẩn hóa)" in sub.columns else _u.clean_mst_series(sub[_u.resolve_column(data, main_cols["mst"])])
+
+    out = pd.DataFrame({
+        "Số hóa đơn": no.values,
+        "Ngày hóa đơn": _u.parse_date(sub[date_col]).dt.strftime("%d/%m/%Y").values,
+        "MST người bán": mst.values,
+        "Tên hàng hóa dịch vụ": sub[goods_col].values,
+        "Giá trị chưa thuế": _u.parse_amount_series(sub[pre_col]).values,
+        "Thuế GTGT": _u.parse_amount_series(sub[vat_col]).values,
+    })
+    for label, col in (extras or []):
+        out[label] = sub[col].values if col in sub.columns else ""
+    return out.reset_index(drop=True)
 
 
 def _indicator_specs(data, cfg):
