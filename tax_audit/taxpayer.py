@@ -64,7 +64,8 @@ def enrich_with_taxpayer_status(
 
     after = inv_date.notna() & close_date.notna() & (inv_date > close_date)
     merged["Cảnh báo HĐ sau ngày đóng"] = after
-    merged["Số ngày xuất sau khi đóng"] = (inv_date - close_date).dt.days.where(after)
+    # Số ngày xuất sau khi đóng = Ngày đóng trạng thái - Ngày hóa đơn
+    merged["Số ngày xuất sau khi đóng"] = (close_date - inv_date).dt.days.where(after)
 
     return merged
 

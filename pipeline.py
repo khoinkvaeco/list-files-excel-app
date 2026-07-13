@@ -67,7 +67,6 @@ def run_pipeline(
         sheets["Trạng thái NNT (TMS)"] = tms_lookup
         _m = data["Cảnh báo HĐ sau ngày đóng"] == True  # noqa: E712
         sheets["HĐ xuất sau ngày đóng"] = _detail_sheet(data, main_cols, _m, [
-            ("Trạng thái NNT", "Trạng thái NNT"),
             ("Ngày đóng trạng thái", "Ngày đóng trạng thái"),
             ("Số ngày xuất sau khi đóng", "Số ngày xuất sau khi đóng"),
         ])
@@ -234,9 +233,10 @@ def run_pipeline(
 
 
 def _detail_sheet(data, main_cols, mask, extras=None):
-    """Sheet chi tiết chuẩn: 6 cột (số HĐ, ngày HĐ, MST người bán, tên hàng hóa,
-    giá trị chưa thuế, thuế GTGT) + các cột riêng của loại (``extras`` = list
-    (nhãn hiển thị, tên cột trong data))."""
+    """Sheet chi tiết chuẩn: 7 cột (số HĐ, ngày HĐ, MST người bán, TÊN NGƯỜI BÁN,
+    tên hàng hóa, giá trị chưa thuế, thuế GTGT) + các cột riêng của loại
+    (``extras`` = list (nhãn hiển thị, tên cột trong data)) + cột cuối
+    "Trạng thái" (trạng thái NNT từ TMS, nếu có)."""
     from tax_audit import utils as _u
 
     sub = data[mask.fillna(False)] if hasattr(mask, "fillna") else data[mask]
@@ -247,16 +247,28 @@ def _detail_sheet(data, main_cols, mask, extras=None):
     no = sub["Số HĐ (bỏ 0 đầu)"] if "Số HĐ (bỏ 0 đầu)" in sub.columns else sub[_u.resolve_column(data, main_cols["invoice_no"])]
     mst = sub["MST (chuẩn hóa)"] if "MST (chuẩn hóa)" in sub.columns else _u.clean_mst_series(sub[_u.resolve_column(data, main_cols["mst"])])
 
+    # Tên người bán (tùy chọn — để trống nếu file không có/không cấu hình)
+    seller_ref = main_cols.get("seller")
+    seller = ""
+    if seller_ref:
+        try:
+            seller = sub[_u.resolve_column(data, seller_ref)].values
+        except (KeyError, IndexError):
+            seller = ""
+
     out = pd.DataFrame({
         "Số hóa đơn": no.values,
         "Ngày hóa đơn": _u.parse_date(sub[date_col]).dt.strftime("%d/%m/%Y").values,
         "MST người bán": mst.values,
+        "Tên người bán": seller,
         "Tên hàng hóa dịch vụ": sub[goods_col].values,
         "Giá trị chưa thuế": _u.parse_amount_series(sub[pre_col]).values,
         "Thuế GTGT": _u.parse_amount_series(sub[vat_col]).values,
     })
     for label, col in (extras or []):
         out[label] = sub[col].values if col in sub.columns else ""
+    # cột cuối: trạng thái NNT (nếu đã tra TMS)
+    out["Trạng thái"] = sub["Trạng thái NNT"].values if "Trạng thái NNT" in sub.columns else ""
     return out.reset_index(drop=True)
 
 
@@ -381,6 +393,14 @@ def _build_indicator_data(data, main_cols, cfg):
     goods_col = _u.resolve_column(data, main_cols["goods"])
     dt = _u.parse_date(data[date_col])
 
+    seller_ref = main_cols.get("seller")
+    seller = ""
+    if seller_ref:
+        try:
+            seller = data[_u.resolve_column(data, seller_ref)]
+        except (KeyError, IndexError):
+            seller = ""
+
     year_series = data["Năm kiểm tra"] if "Năm kiểm tra" in data.columns else dt.dt.year
     out = pd.DataFrame({
         "Các chỉ tiêu dính": tag_str,
@@ -388,6 +408,7 @@ def _build_indicator_data(data, main_cols, cfg):
         "Số HĐ": data.get("Số HĐ (bỏ 0 đầu)", ""),
         "Ngày HĐ": dt.dt.strftime("%d/%m/%Y"),
         "MST người bán": data.get("MST (chuẩn hóa)", ""),
+        "Tên người bán": seller,
         "Tên hàng hóa": data[goods_col],
         "Giá trị chưa thuế": _u.parse_amount_series(data[pretax_col]),
         "Thuế GTGT": _u.parse_amount_series(data[vat_col]),
