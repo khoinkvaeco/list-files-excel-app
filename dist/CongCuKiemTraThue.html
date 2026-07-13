@@ -104,6 +104,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="m_hdr" min="1" value="11"></label>
           <label class="fld"><span>MST người bán</span><input type="text" id="m_mst"></label>
         </div>
+        <label class="fld"><span>Tên người bán</span><input type="text" id="m_seller"></label>
         <div class="row2">
           <label class="fld"><span>Số hóa đơn</span><input type="text" id="m_no"></label>
           <label class="fld"><span>Ngày hóa đơn</span><input type="text" id="m_date"></label>
@@ -248,8 +249,8 @@ const $=id=>document.getElementById(id);
 
 /* ================= CẤU HÌNH MẶC ĐỊNH ================= */
 const DEF={
-  main_letter:{mst:'L',invoice_no:'F',invoice_date:'G',pretax:'Q',vat:'S',goods:'M',period:''},
-  main_name:{mst:'Mã số thuế người bán',invoice_no:'Số hóa đơn',invoice_date:'Ngày hóa đơn',pretax:'chưa có thuế',vat:'Thuế GTGT',goods:'hàng',period:''},
+  main_letter:{mst:'L',seller:'I',invoice_no:'F',invoice_date:'G',pretax:'Q',vat:'S',goods:'M',period:''},
+  main_name:{mst:'Mã số thuế người bán',seller:'Tên người bán',invoice_no:'Số hóa đơn',invoice_date:'Ngày hóa đơn',pretax:'chưa có thuế',vat:'Thuế GTGT',goods:'hàng',period:''},
   tms_letter:{mst:'D',status:'AS',close:'BB'},
   tms_name:{mst:'Mã số thuế',status:'Trạng thái ĐKT tổ chức',close:'Ngày đóng trạng thái tổ chức'},
   einv_letter:{mst:'G',invoice_no:'D',invoice_date:'E',status:'S',total_tax:'M'},
@@ -436,7 +437,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg){
   const mat=sheetMatrix(mainWb,mainSheet);
   const header=mat[cfg.main.headerRow-1]||[];
   const ci={};for(const k in cfg.main.cols)ci[k]=resolveIndex(header,cfg.main.cols[k]);
-  const missing=Object.keys(ci).filter(k=>k!=='period'&&ci[k]<0);
+  const missing=Object.keys(ci).filter(k=>k!=='period'&&k!=='seller'&&ci[k]<0);
   if(missing.length)throw new Error('Không tìm thấy cột: '+missing.join(', ')+'. Kiểm tra lại Dòng tiêu đề / tên cột.');
   const origHeader=header.slice(0,20);
   const iPeriod=(cfg.main.cols.period&&String(cfg.main.cols.period).trim())?resolveIndex(header,cfg.main.cols.period):-1;
@@ -447,8 +448,9 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg){
     const dd=parseDate(row[ci.invoice_date]);
     const g=flagGoods(row[ci.goods],cfg.goods);
     const py=iPeriod>=0?extractYear(row[iPeriod]):null;  // năm kiểm tra từ cột kỳ
+    const seller=(ci.seller>=0&&row[ci.seller]!=null)?String(row[ci.seller]).trim():'';
     recs.push({row,mst,no,dd,year:(py!=null?py:(dd?dd.y:null)),pre:parseAmount(row[ci.pretax]),vat:parseAmount(row[ci.vat]),
-      goods:row[ci.goods],grp:g.grp,kw:g.kw});
+      goods:row[ci.goods],grp:g.grp,kw:g.kw,seller});
   }
   // ngày lỗi
   let badDates=0;
@@ -533,9 +535,9 @@ function buildSheets(recs,origHeader,cfg,meta){
   sheets['KQ rà soát']=kq;
 
   /* Dữ liệu chỉ tiêu */
-  const di=[['Các chỉ tiêu dính','Năm','Số HĐ','Ngày HĐ','MST người bán','Tên hàng hóa','Giá trị chưa thuế','Thuế GTGT','Trạng thái NNT','Trạng thái HĐĐT','Check thuế suất']];
+  const di=[['Các chỉ tiêu dính','Năm','Số HĐ','Ngày HĐ','MST người bán','Tên người bán','Tên hàng hóa','Giá trị chưa thuế','Thuế GTGT','Trạng thái NNT','Trạng thái HĐĐT','Check thuế suất']];
   for(const r of recs){const tags=specs.filter(sp=>sp.test(r)).map(sp=>sp.label);if(!tags.length)continue;
-    di.push([tags.join('; '),r.year||'',r.no,ddmy(r.dd),r.mst,r.goods==null?'':r.goods,r.pre,r.vat,r.statusNNT||'',r.einvStatus||'',r.check||'']);}
+    di.push([tags.join('; '),r.year||'',r.no,ddmy(r.dd),r.mst,r.seller||'',r.goods==null?'':r.goods,r.pre,r.vat,r.statusNNT||'',r.einvStatus||'',r.check||'']);}
   sheets['Dữ liệu chỉ tiêu']=di;
 
   /* Bảng kê đã xử lý: A-T gốc + U-AC */
@@ -553,21 +555,22 @@ function buildSheets(recs,origHeader,cfg,meta){
   const mstS=[['MST','Số dòng hóa đơn']];Object.keys(cnt).sort().forEach(k=>mstS.push([k,cnt[k]]));
   sheets['MST tra cứu']=mstS;
 
-  /* các sheet CHI TIẾT chuẩn: 6 cột + cột riêng của loại */
-  const CORE=['Số hóa đơn','Ngày hóa đơn','MST người bán','Tên hàng hóa dịch vụ','Giá trị chưa thuế','Thuế GTGT'];
-  const daysAfter=r=>(r.dd&&r.close)?Math.round((Date.UTC(r.dd.y,r.dd.m-1,r.dd.d)-Date.UTC(r.close.y,r.close.m-1,r.close.d))/86400000):'';
+  /* các sheet CHI TIẾT chuẩn: 7 cột cốt lõi + cột riêng + Trạng thái (cuối) */
+  const CORE=['Số hóa đơn','Ngày hóa đơn','MST người bán','Tên người bán','Tên hàng hóa dịch vụ','Giá trị chưa thuế','Thuế GTGT'];
+  // Số ngày xuất sau khi đóng = Ngày đóng trạng thái - Ngày hóa đơn
+  const daysAfter=r=>(r.dd&&r.close)?Math.round((Date.UTC(r.close.y,r.close.m-1,r.close.d)-Date.UTC(r.dd.y,r.dd.m-1,r.dd.d))/86400000):'';
   function detail(test,extras){
-    const out=[CORE.concat(extras.map(e=>e[0]))];
-    for(const r of recs){if(!test(r))continue;out.push([r.no,ddmy(r.dd),r.mst,r.goods==null?'':r.goods,r.pre,r.vat].concat(extras.map(e=>e[1](r))));}
+    const out=[CORE.concat(extras.map(e=>e[0])).concat(['Trạng thái'])];
+    for(const r of recs){if(!test(r))continue;out.push([r.no,ddmy(r.dd),r.mst,r.seller||'',r.goods==null?'':r.goods,r.pre,r.vat].concat(extras.map(e=>e[1](r))).concat([r.statusNNT||'']));}
     return out;
   }
   if(recs.some(r=>r.afterClose))
-    sheets['HĐ xuất sau ngày đóng']=detail(r=>r.afterClose,[['Trạng thái NNT',r=>r.statusNNT||''],['Ngày đóng trạng thái',r=>r.close?ddmy(r.close):''],['Số ngày xuất sau khi đóng',daysAfter]]);
+    sheets['HĐ xuất sau ngày đóng']=detail(r=>r.afterClose,[['Ngày đóng trạng thái',r=>r.close?ddmy(r.close):''],['Số ngày xuất sau khi đóng',daysAfter]]);
   if(recs.some(r=>r.riskDoc))
     sheets['HĐ của DN rủi ro']=detail(r=>!!r.riskDoc,[['Văn bản rủi ro',r=>r.riskDoc||'']]);
   sheets['Mặt hàng nghi ngờ']=detail(r=>r.grp,[['Nhóm nghi ngờ',r=>r.grp],['Từ khóa khớp',r=>r.kw]]);
   const dupSheet=detail(r=>r.dup,[['Nhóm trùng',r=>r.dupTag||''],['Số bản ghi trùng',r=>r.dupN||'']]);
-  const dupHead=dupSheet.shift();dupSheet.sort((a,b)=>String(a[6]).localeCompare(String(b[6])));dupSheet.unshift(dupHead);
+  const dupHead=dupSheet.shift();dupSheet.sort((a,b)=>String(a[7]).localeCompare(String(b[7])));dupSheet.unshift(dupHead);
   sheets['HĐ kê khai trùng']=dupSheet;
   if(meta.hasEinv){
     const prob=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound]);
@@ -628,7 +631,7 @@ const linesOf=s=>s.split('\n').map(x=>x.trim()).filter(Boolean);
 
 function setColInputs(mode){
   const m=DEF['main_'+mode],t=DEF['tms_'+mode],e=DEF['einv_'+mode];
-  $('m_mst').value=m.mst;$('m_no').value=m.invoice_no;$('m_date').value=m.invoice_date;$('m_pre').value=m.pretax;$('m_vat').value=m.vat;$('m_goods').value=m.goods;$('m_period').value=m.period||'';
+  $('m_mst').value=m.mst;$('m_seller').value=m.seller||'';$('m_no').value=m.invoice_no;$('m_date').value=m.invoice_date;$('m_pre').value=m.pretax;$('m_vat').value=m.vat;$('m_goods').value=m.goods;$('m_period').value=m.period||'';
   $('t_mst').value=t.mst;$('t_status').value=t.status;$('t_close').value=t.close;
   $('e_mst').value=e.mst;$('e_no').value=e.invoice_no;$('e_date').value=e.invoice_date;$('e_status').value=e.status;$('e_tax').value=e.total_tax;
 }
@@ -641,7 +644,7 @@ function modeHint(){
 function getCfg(){
   COL_MODE=$('colMode').value;
   return {
-    main:{headerRow:+$('m_hdr').value||1,cols:{mst:$('m_mst').value.trim(),invoice_no:$('m_no').value.trim(),invoice_date:$('m_date').value.trim(),pretax:$('m_pre').value.trim(),vat:$('m_vat').value.trim(),goods:$('m_goods').value.trim(),period:$('m_period').value.trim()}},
+    main:{headerRow:+$('m_hdr').value||1,cols:{mst:$('m_mst').value.trim(),seller:$('m_seller').value.trim(),invoice_no:$('m_no').value.trim(),invoice_date:$('m_date').value.trim(),pretax:$('m_pre').value.trim(),vat:$('m_vat').value.trim(),goods:$('m_goods').value.trim(),period:$('m_period').value.trim()}},
     tms:{headerRow:+$('t_hdr').value||1,mst:$('t_mst').value.trim(),status:$('t_status').value.trim(),close:$('t_close').value.trim()},
     einv:{headerRow:+$('e_hdr').value||1,cols:{mst:$('e_mst').value.trim(),invoice_no:$('e_no').value.trim(),invoice_date:$('e_date').value.trim(),status:$('e_status').value.trim(),total_tax:$('e_tax').value.trim()}},
     risk:DEF.risk,goods:{'Không phục vụ SXKD':linesOf($('kw_sxkd').value),'Quà tặng':linesOf($('kw_qt').value)},
@@ -650,7 +653,7 @@ function getCfg(){
 }
 function saveCfg(){
   const c={colMode:$('colMode').value,
-    m:{hdr:$('m_hdr').value,mst:$('m_mst').value,no:$('m_no').value,date:$('m_date').value,pre:$('m_pre').value,vat:$('m_vat').value,goods:$('m_goods').value,period:$('m_period').value},
+    m:{hdr:$('m_hdr').value,mst:$('m_mst').value,seller:$('m_seller').value,no:$('m_no').value,date:$('m_date').value,pre:$('m_pre').value,vat:$('m_vat').value,goods:$('m_goods').value,period:$('m_period').value},
     t:{hdr:$('t_hdr').value,mst:$('t_mst').value,status:$('t_status').value,close:$('t_close').value},
     e:{hdr:$('e_hdr').value,mst:$('e_mst').value,no:$('e_no').value,date:$('e_date').value,status:$('e_status').value,tax:$('e_tax').value},
     kw:{sxkd:$('kw_sxkd').value,qt:$('kw_qt').value}};
@@ -660,7 +663,7 @@ function loadCfg(){
   let c=null;try{c=JSON.parse(localStorage.getItem(LS));}catch(e){}
   $('colMode').value=(c&&c.colMode)||'letter';
   if(c){
-    $('m_hdr').value=c.m.hdr;$('m_mst').value=c.m.mst;$('m_no').value=c.m.no;$('m_date').value=c.m.date;$('m_pre').value=c.m.pre;$('m_vat').value=c.m.vat;$('m_goods').value=c.m.goods;$('m_period').value=c.m.period||'';
+    $('m_hdr').value=c.m.hdr;$('m_mst').value=c.m.mst;$('m_seller').value=c.m.seller||'';$('m_no').value=c.m.no;$('m_date').value=c.m.date;$('m_pre').value=c.m.pre;$('m_vat').value=c.m.vat;$('m_goods').value=c.m.goods;$('m_period').value=c.m.period||'';
     $('t_hdr').value=c.t.hdr;$('t_mst').value=c.t.mst;$('t_status').value=c.t.status;$('t_close').value=c.t.close;
     $('e_hdr').value=c.e.hdr;$('e_mst').value=c.e.mst;$('e_no').value=c.e.no;$('e_date').value=c.e.date;$('e_status').value=c.e.status;$('e_tax').value=c.e.tax;
     $('kw_sxkd').value=c.kw.sxkd;$('kw_qt').value=c.kw.qt;$('savedNote').style.display='block';

@@ -172,6 +172,7 @@ def build_runtime_config():
         with st.expander("File dữ liệu chính", expanded=False):
             for k, label in [
                 ("mst", "MST người bán"),
+                ("seller", "Tên người bán"),
                 ("invoice_no", "Số hóa đơn"),
                 ("invoice_date", "Ngày hóa đơn"),
                 ("pretax", "Giá trị chưa thuế"),

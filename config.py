@@ -24,6 +24,7 @@ MAIN = {
     "header_row": 11,
     "cols": {
         "mst": "L",          # cột L - Mã số thuế người bán (bản giữ số 0 đầu)
+        "seller": "I",       # cột I - Tên người bán
         "invoice_no": "F",   # cột F - Số hóa đơn
         "invoice_date": "G", # cột G - Ngày, tháng, năm lập hóa đơn
         "pretax": "Q",       # cột Q - Giá trị HHDV mua vào chưa có thuế GTGT
@@ -135,6 +136,7 @@ STATUS_NOT_FOUND = "Không tìm thấy"
 # ---------------------------------------------------------------------------
 MAIN_NAME_COLS = {
     "mst": "Mã số thuế người bán",
+    "seller": "Tên người bán",
     "invoice_no": "Số hóa đơn",
     "invoice_date": "Ngày hóa đơn",
     "pretax": "chưa có thuế",
