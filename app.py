@@ -558,13 +558,118 @@ def render_merge():
 
 
 # ---------------------------------------------------------------------------
+# TAB 4: KIỂM TRA NGƯỜI PHỤ THUỘC (NPT)
+# ---------------------------------------------------------------------------
+def render_npt():
+    from tax_audit import npt
+
+    st.subheader("Kiểm tra người phụ thuộc (đối chiếu Phụ lục 05-3 với TMS)")
+    st.caption(
+        "Bước 1: tra NPT trên TMS theo MST NPT (hoặc MST NNT + tên NPT) và điền "
+        "kỳ giảm trừ TMS vào Phụ lục 3. Bước 2: so kỳ kê khai với kỳ TMS → TRUE/FALSE. "
+        "Bước 3: cộng số NPT TRUE theo MST NNT vào cột cuối Phụ lục 1."
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        f_qt = st.file_uploader(
+            "📄 File quyết toán TNCN (chứa Phụ lục 05-1 và 05-3)", type=["xlsx", "xls"]
+        )
+        pl3_sheet = pl1_sheet = None
+        if f_qt is not None:
+            try:
+                shs = utils.list_sheets(f_qt)
+                _d3 = next((i for i, s in enumerate(shs) if "05_3" in s or "PL3" in s.upper()), 0)
+                _d1 = next((i for i, s in enumerate(shs) if "05_1" in s or "PL1" in s.upper()), 0)
+                pl3_sheet = st.selectbox("→ Sheet Phụ lục 05-3 (NPT)", shs, index=_d3)
+                pl1_sheet = st.selectbox("→ Sheet Phụ lục 05-1 (người lao động)", shs, index=_d1)
+            except Exception:  # noqa: BLE001
+                pass
+    with c2:
+        f_tms = st.file_uploader("🏢 File NPT từ TMS", type=["xlsx", "xls"])
+        tms_sheet = None
+        if f_tms is not None:
+            try:
+                shs2 = utils.list_sheets(f_tms)
+                _dt = next((i for i, s in enumerate(shs2) if "npt" in s.lower()), 0)
+                tms_sheet = st.selectbox("→ Sheet dữ liệu NPT (TMS)", shs2, index=_dt)
+            except Exception:  # noqa: BLE001
+                pass
+
+    with st.expander("⚙️ Cấu hình cột (chữ cái Excel hoặc tên tiêu đề)", expanded=False):
+        st.markdown("**Phụ lục 05-3** (dòng tiêu đề + các cột)")
+        r1 = st.columns(6)
+        pl3_hdr = r1[0].number_input("Dòng tiêu đề PL3", 1, 20, 1)
+        pl3 = {
+            "mst_nnt": r1[1].text_input("MST NNT", "C", key="n_p3a"),
+            "ten_npt": r1[2].text_input("Tên NPT", "D", key="n_p3b"),
+            "mst_npt": r1[3].text_input("MST NPT", "F", key="n_p3c"),
+            "tu_thang": r1[4].text_input("Từ tháng", "V", key="n_p3d"),
+            "den_thang": r1[5].text_input("Đến tháng", "W", key="n_p3e"),
+        }
+        st.markdown("**File TMS NPT**")
+        r2 = st.columns(6)
+        tms_hdr = r2[0].number_input("Dòng tiêu đề TMS", 1, 20, 1)
+        tmsc = {
+            "mst_nnt": r2[1].text_input("MST NNT", "E", key="n_ta"),
+            "ten_npt": r2[2].text_input("Tên NPT", "F", key="n_tb"),
+            "mst_npt": r2[3].text_input("MST NPT", "H", key="n_tc"),
+            "tu_thang": r2[4].text_input("Từ tháng", "R", key="n_td"),
+            "den_thang": r2[5].text_input("Đến tháng", "S", key="n_te"),
+        }
+        st.markdown("**Phụ lục 05-1**")
+        r3 = st.columns(6)
+        pl1_hdr = r3[0].number_input("Dòng tiêu đề PL1", 1, 20, 1)
+        pl1_mst = r3[1].text_input("Cột MST NNT (PL1)", "E", key="n_p1")
+
+    if st.button("▶️ Đối chiếu NPT", type="primary", disabled=not (f_qt and f_tms)):
+        try:
+            tms_df = utils.read_excel(f_tms, tms_hdr, sheet_name=tms_sheet or 0)
+            pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
+            pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
+            by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
+            pl3_out, counts = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
+            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Lỗi: {e}")
+            st.exception(e)
+            st.stop()
+        st.session_state["npt_result"] = (pl3_out, pl1_out, counts, len(by_mst))
+
+    if "npt_result" in st.session_state:
+        pl3_out, pl1_out, counts, n_tms = st.session_state["npt_result"]
+        vc = pl3_out["Hợp lệ"].value_counts().to_dict()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("NPT trên TMS", n_tms)
+        m2.metric("NPT hợp lệ (TRUE)", vc.get("TRUE", 0))
+        m3.metric("NPT không hợp lệ (FALSE)", vc.get("FALSE", 0))
+        m4.metric("NNT có NPT TRUE", len(counts))
+
+        excel_bytes = utils.to_excel_bytes({
+            "PL3 đối chiếu NPT": pl3_out,
+            "PL1 tổng hợp NPT": pl1_out,
+        })
+        st.download_button(
+            "⬇️ Tải kết quả đối chiếu NPT",
+            data=excel_bytes,
+            file_name="ket_qua_doi_chieu_NPT.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+        st.markdown("**Phụ lục 3 — đối chiếu** (TMS Từ/Đến tháng, Nguồn khớp, Hợp lệ ở các cột cuối)")
+        show_df(pl3_out)
+        st.markdown("**Phụ lục 1 — cột cuối: Số NPT hợp lệ (TRUE)**")
+        show_df(pl1_out)
+
+
+# ---------------------------------------------------------------------------
 # ĐIỀU HƯỚNG
 # ---------------------------------------------------------------------------
 cfg = build_runtime_config()
 # áp dụng cách hiểu tham chiếu cột (chữ cái Excel hay tên tiêu đề) cho toàn bộ xử lý
 utils.set_column_mode(getattr(cfg, "_col_mode", "letter"))
-tab_audit, tab_xml, tab_merge = st.tabs(
-    ["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel", "📁 Gộp file Excel"]
+tab_audit, tab_xml, tab_merge, tab_npt = st.tabs(
+    ["🔍 Kiểm tra bảng kê", "🔄 XML hóa đơn → Excel", "📁 Gộp file Excel", "👪 Kiểm tra NPT"]
 )
 with tab_audit:
     render_audit(cfg)
@@ -572,3 +677,5 @@ with tab_xml:
     render_xml_converter()
 with tab_merge:
     render_merge()
+with tab_npt:
+    render_npt()

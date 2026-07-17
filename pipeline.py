@@ -53,6 +53,24 @@ def run_pipeline(
     has_no = data["Số HĐ (bỏ 0 đầu)"].astype(str).str.strip() != ""
     data = data[has_mst | has_no].reset_index(drop=True)
 
+    # --- NĂM KIỂM TRA (tính sớm để mọi sheet chi tiết dùng được) --------
+    # Ưu tiên cột "period" (vd cột kỳ 'T1.2022'); không có thì theo ngày HĐ.
+    from tax_audit import utils as _uy
+
+    _ydate_col = _uy.resolve_column(data, main_cols["invoice_date"])
+    _ydates = _uy.parse_date(data[_ydate_col])
+    _year_from_date = _ydates.dt.year
+    _period_ref0 = main_cols.get("period")
+    _ay = None
+    if _period_ref0:
+        try:
+            _pcol0 = _uy.resolve_column(data, _period_ref0)
+            _ay = data[_pcol0].map(_uy.extract_year)
+        except (KeyError, IndexError):
+            _ay = None
+    _cy = _ay.where(_ay.notna(), _year_from_date) if _ay is not None else _year_from_date
+    data["Năm kiểm tra"] = pd.to_numeric(_cy, errors="coerce")
+
     # --- Tác vụ 2: sheet danh sách MST để tra TMS ----------------------
     mst_sheet = mst.build_mst_sheet(main_df, main_cols["mst"])
     sheets["MST tra cứu"] = mst_sheet
@@ -65,6 +83,16 @@ def run_pipeline(
             data, tms_lookup, main_cols["invoice_date"]
         )
         sheets["Trạng thái NNT (TMS)"] = tms_lookup
+
+        # Sheet NNT KHÔNG HOẠT ĐỘNG: gộp theo MST người bán có trạng thái
+        # bất thường (khác "đang hoạt động"), kèm tổng giá trị/thuế/số HĐ.
+        _stt = data["Trạng thái NNT"].map(lambda x: "" if pd.isna(x) else str(x).strip())
+        _bad = (_stt != "") & ~_stt.str.lower().str.contains("đang hoạt động")
+        sheets["NNT không hoạt động"] = _inactive_nnt_sheet(data, main_cols, _bad)
+        summary["Số NNT không hoạt động/bất thường"] = int(
+            data.loc[_bad, "MST (chuẩn hóa)"].astype(str).nunique()
+        )
+
         _m = data["Cảnh báo HĐ sau ngày đóng"] == True  # noqa: E712
         sheets["HĐ xuất sau ngày đóng"] = _detail_sheet(data, main_cols, _m, [
             ("Ngày đóng trạng thái", "Ngày đóng trạng thái"),
@@ -189,23 +217,6 @@ def run_pipeline(
     if _bad_dates:
         summary["Dòng ngày HĐ không đọc được (cần sửa tay)"] = _bad_dates
 
-    # NĂM KIỂM TRA cho KQ/chỉ tiêu: ưu tiên cột "period" (vd cột kỳ 'T1.2022'),
-    # nếu không có thì lấy năm theo ngày hóa đơn.
-    _date_year = _dates.dt.year
-    _period_ref = main_cols.get("period")
-    _audit_year = None
-    if _period_ref:
-        try:
-            _pcol = _u.resolve_column(data, _period_ref)
-            _audit_year = data[_pcol].map(_u.extract_year)
-        except (KeyError, IndexError):
-            _audit_year = None
-    if _audit_year is not None:
-        _combined = _audit_year.where(_audit_year.notna(), _date_year)
-    else:
-        _combined = _date_year
-    data["Năm kiểm tra"] = pd.to_numeric(_combined, errors="coerce")
-
     _goods = data[goods_col].astype(str)
     _periods = getattr(cfg, "VAT_REDUCED_PERIODS", [])
     _excl = getattr(cfg, "VAT_EXCLUDE_KEYWORDS", {})
@@ -232,6 +243,46 @@ def run_pipeline(
     return {"data": data, "sheets": ordered, "summary": summary}
 
 
+def _inactive_nnt_sheet(data, main_cols, mask):
+    """Sheet 'NNT không hoạt động': gộp theo MST người bán trạng thái bất thường,
+    kèm tên, trạng thái, ngày đóng, số HĐ và tổng giá trị/thuế."""
+    from tax_audit import utils as _u
+
+    sub = data[mask.fillna(False)]
+    if sub.empty:
+        return pd.DataFrame(columns=[
+            "MST người bán", "Tên người bán", "Trạng thái NNT",
+            "Ngày đóng trạng thái", "Số hóa đơn", "Tổng giá trị chưa thuế", "Tổng thuế GTGT",
+        ])
+    pre_col = _u.resolve_column(data, main_cols["pretax"])
+    vat_col = _u.resolve_column(data, main_cols["vat"])
+    seller_ref = main_cols.get("seller")
+    try:
+        seller_col = _u.resolve_column(data, seller_ref) if seller_ref else None
+    except (KeyError, IndexError):
+        seller_col = None
+
+    tmp = pd.DataFrame({
+        "MST người bán": sub["MST (chuẩn hóa)"].astype(str),
+        "Tên người bán": sub[seller_col].astype(str) if seller_col else "",
+        "Trạng thái NNT": sub["Trạng thái NNT"].astype(str),
+        "Ngày đóng trạng thái": _u.parse_date(sub["Ngày đóng trạng thái"]).dt.strftime("%d/%m/%Y").fillna("")
+            if "Ngày đóng trạng thái" in sub.columns else "",
+        "Số HĐ": sub["Số HĐ (bỏ 0 đầu)"].astype(str),
+        "pre": _u.parse_amount_series(sub[pre_col]),
+        "vat": _u.parse_amount_series(sub[vat_col]),
+    })
+    out = tmp.groupby("MST người bán", as_index=False).agg(**{
+        "Tên người bán": ("Tên người bán", "first"),
+        "Trạng thái NNT": ("Trạng thái NNT", "first"),
+        "Ngày đóng trạng thái": ("Ngày đóng trạng thái", "first"),
+        "Số hóa đơn": ("Số HĐ", "nunique"),
+        "Tổng giá trị chưa thuế": ("pre", "sum"),
+        "Tổng thuế GTGT": ("vat", "sum"),
+    })
+    return out.sort_values("Tổng thuế GTGT", ascending=False).reset_index(drop=True)
+
+
 def _detail_sheet(data, main_cols, mask, extras=None):
     """Sheet chi tiết chuẩn: 7 cột (số HĐ, ngày HĐ, MST người bán, TÊN NGƯỜI BÁN,
     tên hàng hóa, giá trị chưa thuế, thuế GTGT) + các cột riêng của loại
@@ -256,9 +307,11 @@ def _detail_sheet(data, main_cols, mask, extras=None):
         except (KeyError, IndexError):
             seller = ""
 
+    year = sub["Năm kiểm tra"].values if "Năm kiểm tra" in sub.columns else ""
     out = pd.DataFrame({
         "Số hóa đơn": no.values,
         "Ngày hóa đơn": _u.parse_date(sub[date_col]).dt.strftime("%d/%m/%Y").values,
+        "Năm kiểm tra": year,
         "MST người bán": mst.values,
         "Tên người bán": seller,
         "Tên hàng hóa dịch vụ": sub[goods_col].values,
