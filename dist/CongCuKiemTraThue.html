@@ -161,6 +161,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       <button class="tab on" data-tab="audit">🔍 Kiểm tra bảng kê</button>
       <button class="tab" data-tab="xml">🔄 XML hóa đơn → Excel</button>
       <button class="tab" data-tab="merge">📁 Gộp file Excel</button>
+      <button class="tab" data-tab="npt">👪 Kiểm tra NPT</button>
     </div>
 
     <!-- TAB AUDIT -->
@@ -210,6 +211,62 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <div class="metrics" id="xmlMetrics"></div>
           <button class="btn pri" id="btnXmlDl">⬇️ Tải file Excel hóa đơn</button>
           <div class="tblwrap" style="margin-top:10px" id="xmlPreview"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB NPT -->
+    <section id="tab-npt" style="display:none">
+      <div class="card">
+        <h2>Kiểm tra người phụ thuộc (đối chiếu Phụ lục 05-3 với TMS)</h2>
+        <p class="muted">Bước 1: tra NPT trên TMS (theo MST NPT, hoặc MST NNT + tên NPT) và điền kỳ giảm trừ TMS vào Phụ lục 3. Bước 2: so kỳ kê khai với kỳ TMS → TRUE/FALSE. Bước 3: cộng NPT TRUE theo MST NNT vào cột cuối Phụ lục 1.</p>
+        <div class="row2">
+          <label class="fld"><span>📄 File quyết toán TNCN (chứa PL 05-1 và 05-3)</span>
+            <input type="file" id="f_npt_qt" accept=".xlsx,.xls"></label>
+          <label class="fld"><span>🏢 File NPT từ TMS</span>
+            <input type="file" id="f_npt_tms" accept=".xlsx,.xls"></label>
+        </div>
+        <div class="row2">
+          <label class="fld"><span>→ Sheet Phụ lục 05-3 (NPT)</span><select id="npt_pl3_sheet"></select></label>
+          <label class="fld"><span>→ Sheet Phụ lục 05-1</span><select id="npt_pl1_sheet"></select></label>
+        </div>
+        <label class="fld"><span>→ Sheet dữ liệu NPT (TMS)</span><select id="npt_tms_sheet"></select></label>
+        <details><summary>⚙️ Cấu hình cột</summary><div class="body">
+          <h3>Phụ lục 05-3</h3>
+          <div class="row2">
+            <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p3_hdr" min="1" value="1"></label>
+            <label class="fld"><span>MST NNT</span><input type="text" id="p3_mstnnt" value="C"></label>
+            <label class="fld"><span>Tên NPT</span><input type="text" id="p3_ten" value="D"></label>
+          </div>
+          <div class="row2">
+            <label class="fld"><span>MST NPT</span><input type="text" id="p3_mstnpt" value="F"></label>
+            <label class="fld"><span>Từ tháng</span><input type="text" id="p3_tu" value="V"></label>
+            <label class="fld"><span>Đến tháng</span><input type="text" id="p3_den" value="W"></label>
+          </div>
+          <h3>File TMS NPT</h3>
+          <div class="row2">
+            <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="tm_hdr" min="1" value="1"></label>
+            <label class="fld"><span>MST NNT</span><input type="text" id="tm_mstnnt" value="E"></label>
+            <label class="fld"><span>Tên NPT</span><input type="text" id="tm_ten" value="F"></label>
+          </div>
+          <div class="row2">
+            <label class="fld"><span>MST NPT</span><input type="text" id="tm_mstnpt" value="H"></label>
+            <label class="fld"><span>Từ tháng</span><input type="text" id="tm_tu" value="R"></label>
+            <label class="fld"><span>Đến tháng</span><input type="text" id="tm_den" value="S"></label>
+          </div>
+          <h3>Phụ lục 05-1</h3>
+          <div class="row2">
+            <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p1_hdr" min="1" value="1"></label>
+            <label class="fld"><span>Cột MST NNT</span><input type="text" id="p1_mst" value="E"></label>
+          </div>
+        </div></details>
+        <button class="btn pri" id="btnNpt" disabled>▶️ Đối chiếu NPT</button>
+        <div id="nptMsg"></div>
+        <div id="nptResult" style="display:none">
+          <div class="metrics" id="nptMetrics"></div>
+          <button class="btn pri" id="btnNptDl">⬇️ Tải kết quả đối chiếu NPT</button>
+          <div class="subtabs" id="nptTabs"></div>
+          <div class="tblwrap" id="nptPreview" style="margin-top:8px"></div>
         </div>
       </div>
     </section>
@@ -555,13 +612,31 @@ function buildSheets(recs,origHeader,cfg,meta){
   const mstS=[['MST','Số dòng hóa đơn']];Object.keys(cnt).sort().forEach(k=>mstS.push([k,cnt[k]]));
   sheets['MST tra cứu']=mstS;
 
-  /* các sheet CHI TIẾT chuẩn: 7 cột cốt lõi + cột riêng + Trạng thái (cuối) */
-  const CORE=['Số hóa đơn','Ngày hóa đơn','MST người bán','Tên người bán','Tên hàng hóa dịch vụ','Giá trị chưa thuế','Thuế GTGT'];
+  /* sheet NNT KHÔNG HOẠT ĐỘNG (gộp theo MST bán, trạng thái bất thường) */
+  {
+    const agg2={};
+    for(const r of recs){
+      const st=(r.statusNNT||'').trim();
+      if(!st||st.toLowerCase().includes('đang hoạt động'))continue;
+      const k=r.mst;if(!k)continue;
+      if(!agg2[k])agg2[k]={seller:r.seller||'',st,close:r.close,inv:new Set(),pre:0,vat:0};
+      agg2[k].inv.add(r.no);agg2[k].pre+=r.pre;agg2[k].vat+=r.vat;
+    }
+    const rows2=Object.keys(agg2).map(k=>{const o=agg2[k];return [k,o.seller,o.st,o.close?ddmy(o.close):'',o.inv.size,Math.round(o.pre),Math.round(o.vat)];});
+    rows2.sort((a,b)=>b[6]-a[6]);
+    if(rows2.length){
+      sheets['NNT không hoạt động']=[['MST người bán','Tên người bán','Trạng thái NNT','Ngày đóng trạng thái','Số hóa đơn','Tổng giá trị chưa thuế','Tổng thuế GTGT']].concat(rows2);
+      summary['Số NNT không hoạt động/bất thường']=rows2.length;
+    }
+  }
+
+  /* các sheet CHI TIẾT chuẩn: 8 cột cốt lõi + cột riêng + Trạng thái (cuối) */
+  const CORE=['Số hóa đơn','Ngày hóa đơn','Năm kiểm tra','MST người bán','Tên người bán','Tên hàng hóa dịch vụ','Giá trị chưa thuế','Thuế GTGT'];
   // Số ngày xuất sau khi đóng = Ngày đóng trạng thái - Ngày hóa đơn
   const daysAfter=r=>(r.dd&&r.close)?Math.round((Date.UTC(r.close.y,r.close.m-1,r.close.d)-Date.UTC(r.dd.y,r.dd.m-1,r.dd.d))/86400000):'';
   function detail(test,extras){
     const out=[CORE.concat(extras.map(e=>e[0])).concat(['Trạng thái'])];
-    for(const r of recs){if(!test(r))continue;out.push([r.no,ddmy(r.dd),r.mst,r.seller||'',r.goods==null?'':r.goods,r.pre,r.vat].concat(extras.map(e=>e[1](r))).concat([r.statusNNT||'']));}
+    for(const r of recs){if(!test(r))continue;out.push([r.no,ddmy(r.dd),r.year||'',r.mst,r.seller||'',r.goods==null?'':r.goods,r.pre,r.vat].concat(extras.map(e=>e[1](r))).concat([r.statusNNT||'']));}
     return out;
   }
   if(recs.some(r=>r.afterClose))
@@ -570,7 +645,7 @@ function buildSheets(recs,origHeader,cfg,meta){
     sheets['HĐ của DN rủi ro']=detail(r=>!!r.riskDoc,[['Văn bản rủi ro',r=>r.riskDoc||'']]);
   sheets['Mặt hàng nghi ngờ']=detail(r=>r.grp,[['Nhóm nghi ngờ',r=>r.grp],['Từ khóa khớp',r=>r.kw]]);
   const dupSheet=detail(r=>r.dup,[['Nhóm trùng',r=>r.dupTag||''],['Số bản ghi trùng',r=>r.dupN||'']]);
-  const dupHead=dupSheet.shift();dupSheet.sort((a,b)=>String(a[7]).localeCompare(String(b[7])));dupSheet.unshift(dupHead);
+  const dupHead=dupSheet.shift();dupSheet.sort((a,b)=>String(a[8]).localeCompare(String(b[8])));dupSheet.unshift(dupHead);
   sheets['HĐ kê khai trùng']=dupSheet;
   if(meta.hasEinv){
     const prob=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound]);
@@ -622,6 +697,72 @@ function mergeUnits(units,{blank,headerRows,source,dedupe}){
   }
   let out=[];if(header)out=header.map(h=>source?['Nguồn'].concat(h):h);out=out.concat(all);
   return {out,stats};
+}
+
+/* ================= KIỂM TRA NGƯỜI PHỤ THUỘC (NPT) ================= */
+const digitsOf=v=>String(v==null?'':v).replace(/\D/g,'');
+function normName(s){return stripAccents(String(s==null?'':s)).toLowerCase().replace(/\s+/g,' ').trim();}
+function monthIndex(v){
+  if(v==null)return null;
+  if(v instanceof Date&&!isNaN(v))return v.getFullYear()*12+(v.getMonth()+1);
+  if(typeof v==='number'){if(v>=20000&&v<=60000){const d=serialToDMY(v);return d.y*12+d.m;}return null;}
+  const s=String(v).trim();if(!s||['nan','nat','none'].includes(s.toLowerCase()))return null;
+  let m=s.match(/^(\d{1,2})\s*\/\s*(\d{4})$/);if(m){const mm=+m[1];return (mm>=1&&mm<=12)?(+m[2]*12+mm):null;}
+  m=s.match(/^(\d{4})\s*[-\/]\s*(\d{1,2})$/);if(m){const mm=+m[2];return (mm>=1&&mm<=12)?(+m[1]*12+mm):null;}
+  const dd=parseDate(v);return dd?(dd.y*12+dd.m):null;
+}
+const fmtMonth=i=>(i==null||i==='')?'':String(((i-1)%12)+1).padStart(2,'0')+'/'+Math.floor((i-1)/12);
+
+function buildTmsNpt(mat,hdrRow,c){
+  const header=mat[hdrRow-1]||[];
+  const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
+  const byMst={},byName={};
+  for(const row of mat.slice(hdrRow)){
+    const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
+    if(!mstNpt&&!name)continue;
+    const rec={from:monthIndex(row[ix.tu_thang]),to:monthIndex(row[ix.den_thang]),mstNnt};
+    if(rec.from==null&&rec.to==null)continue;
+    if(mstNpt)(byMst[mstNpt]=byMst[mstNpt]||[]).push(rec);
+    if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push(rec);
+  }
+  return {byMst,byName};
+}
+function reconcilePL3(mat,hdrRow,c,lk){
+  const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
+  const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
+  const out=[header.concat(['TMS Từ tháng','TMS Đến tháng','Nguồn khớp','Hợp lệ'])];
+  const counts={};let nTrue=0,nFalse=0;
+  for(const row of mat.slice(hdrRow)){
+    const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
+    const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
+    const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
+    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','']));continue;}
+    let recs=null,src='';
+    if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
+    else if(name&&lk.byName[mstNnt+'|'+name]){recs=lk.byName[mstNnt+'|'+name];src='Tên NPT';}
+    const dFrom=monthIndex(row[ix.tu_thang]),dTo=monthIndex(row[ix.den_thang]);
+    let ok=false,tf='',tt='';
+    if(!recs){src='Không tìm thấy';}
+    else{
+      tf=recs.map(r=>fmtMonth(r.from)).join('; ');tt=recs.map(r=>fmtMonth(r.to)).join('; ');
+      if(dFrom!=null){const dEnd=dTo!=null?dTo:dFrom;
+        for(const r of recs){const lo=r.from!=null?r.from:dFrom;if(dFrom>=lo&&(r.to==null||dEnd<=r.to)){ok=true;break;}}}
+    }
+    out.push(base.concat([tf,tt,src,ok?'TRUE':'FALSE']));
+    if(ok){nTrue++;if(mstNnt)counts[mstNnt]=(counts[mstNnt]||0)+1;}else nFalse++;
+  }
+  return {out,counts,nTrue,nFalse};
+}
+function applyPL1(mat,hdrRow,mstRef,counts){
+  const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
+  const ix=resolveIndex(header,mstRef);
+  const out=[header.concat(['Số NPT hợp lệ (TRUE)'])];
+  for(const row of mat.slice(hdrRow)){
+    const base=header.map((_,j)=>row[j]==null?'':row[j]);
+    const d=digitsOf(row[ix]);
+    out.push(base.concat([d&&counts[d]!=null?counts[d]:'']));
+  }
+  return out;
 }
 </script>
 <script>
@@ -677,7 +818,7 @@ $('btnReset').onclick=()=>{localStorage.removeItem(LS);$('colMode').value='lette
 /* Tabs */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
-  ['audit','xml','merge'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
+  ['audit','xml','merge','npt'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
 });
 
 /* ---- Tải file (audit) ---- */
@@ -783,6 +924,56 @@ $('btnMerge').onclick=async()=>{
 document.addEventListener('click',e=>{
   if(e.target&&e.target.id==='btnMergeDl'&&window._mergeOut){writeWB({'TongHop':window._mergeOut.out},window._mergeOut.name);}
 });
+
+/* ---- NPT tab ---- */
+const NF={qt:null,tms:null};
+function fillSheetSel(sel,names,prefer){
+  sel.innerHTML='';names.forEach(n=>{const o=document.createElement('option');o.value=o.textContent=n;sel.appendChild(o);});
+  let idx=names.findIndex(n=>prefer.test(n));if(idx<0)idx=0;sel.selectedIndex=idx;
+}
+$('f_npt_qt').onchange=async e=>{
+  const f=e.target.files[0];if(!f){NF.qt=null;return;}
+  try{NF.qt=await readWB(f);
+    fillSheetSel($('npt_pl3_sheet'),NF.qt.SheetNames,/05_3|PL3/i);
+    fillSheetSel($('npt_pl1_sheet'),NF.qt.SheetNames,/05_1|PL1/i);
+    $('btnNpt').disabled=!(NF.qt&&NF.tms);
+  }catch(err){alert('Lỗi đọc file: '+err.message);}
+};
+$('f_npt_tms').onchange=async e=>{
+  const f=e.target.files[0];if(!f){NF.tms=null;return;}
+  try{NF.tms=await readWB(f);
+    fillSheetSel($('npt_tms_sheet'),NF.tms.SheetNames,/npt/i);
+    $('btnNpt').disabled=!(NF.qt&&NF.tms);
+  }catch(err){alert('Lỗi đọc file: '+err.message);}
+};
+let NPTRES=null;
+$('btnNpt').onclick=()=>{
+  $('nptMsg').innerHTML='<div class="muted">Đang xử lý…</div>';
+  setTimeout(()=>{
+    try{
+      COL_MODE='letter';
+      const tmsMat=sheetMatrix(NF.tms,$('npt_tms_sheet').value);
+      const pl3Mat=sheetMatrix(NF.qt,$('npt_pl3_sheet').value);
+      const pl1Mat=sheetMatrix(NF.qt,$('npt_pl1_sheet').value);
+      const lk=buildTmsNpt(tmsMat,+$('tm_hdr').value||1,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
+      const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value},lk);
+      const pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts);
+      NPTRES={'PL3 đối chiếu NPT':rc.out,'PL1 tổng hợp NPT':pl1};
+      $('nptMsg').innerHTML='';$('nptResult').style.display='block';
+      $('nptMetrics').innerHTML=
+        `<div class="metric"><div class="k">NPT trên TMS</div><div class="v">${Object.keys(lk.byMst).length}</div></div>`+
+        `<div class="metric"><div class="k">NPT hợp lệ (TRUE)</div><div class="v">${rc.nTrue}</div></div>`+
+        `<div class="metric"><div class="k">Không hợp lệ (FALSE)</div><div class="v">${rc.nFalse}</div></div>`+
+        `<div class="metric"><div class="k">NNT có NPT TRUE</div><div class="v">${Object.keys(rc.counts).length}</div></div>`;
+      const tabs=$('nptTabs');tabs.innerHTML='';const names=Object.keys(NPTRES);
+      names.forEach((n,i)=>{const b=document.createElement('button');b.className='subtab'+(i===0?' on':'');b.textContent=n;
+        b.onclick=()=>{document.querySelectorAll('#nptTabs .subtab').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderTable($('nptPreview'),NPTRES[n],400);};
+        tabs.appendChild(b);});
+      renderTable($('nptPreview'),NPTRES[names[0]],400);
+    }catch(err){$('nptMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';NPTRES=null;}
+  },30);
+};
+$('btnNptDl').onclick=()=>{if(NPTRES)writeWB(NPTRES,'ket_qua_doi_chieu_NPT.xlsx');};
 
 /* khởi tạo */
 loadCfg();
