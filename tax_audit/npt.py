@@ -117,8 +117,9 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
     """
     c = {k: utils.resolve_column(pl3_df, v) for k, v in cfg.items()}
 
-    tms_from, tms_to, matched_by, valid = [], [], [], []
+    tms_from, tms_to, matched_by, valid, reasons = [], [], [], [], []
     true_counts: dict = {}
+    total_counts: dict = {}
 
     for _, row in pl3_df.iterrows():
         mst_npt = _digits(row[c["mst_npt"]])
@@ -131,7 +132,8 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
         raw_mst_nnt = "" if row[c["mst_nnt"]] is None else str(row[c["mst_nnt"]]).strip()
         is_ct_row = bool(re.fullmatch(r"ct\d+(_\w+)?", raw_mst_nnt, flags=re.I))
         if is_ct_row or (not mst_nnt and not mst_npt and not name):
-            tms_from.append(""); tms_to.append(""); matched_by.append(""); valid.append("")
+            tms_from.append(""); tms_to.append(""); matched_by.append("")
+            valid.append(""); reasons.append("")
             continue
 
         recs, src = [], ""
@@ -143,13 +145,17 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
         if not recs:
             tms_from.append(""); tms_to.append("")
             matched_by.append("Không tìm thấy"); valid.append("FALSE")
+            reasons.append("Không có trên TMS")
         else:
             # hiển thị kỳ TMS (bản ghi đầu; nhiều kỳ thì nối)
             tms_from.append("; ".join(fmt_month(r["from"]) for r in recs))
             tms_to.append("; ".join(fmt_month(r["to"]) for r in recs))
             matched_by.append(src)
             ok = False
-            if d_from is not None:
+            why = []
+            if d_from is None:
+                why.append("Thiếu Từ tháng kê khai")
+            else:
                 d_end = d_to if d_to is not None else d_from
                 for r in recs:
                     lo = r["from"] if r["from"] is not None else d_from
@@ -157,28 +163,54 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
                     if d_from >= lo and (hi is None or d_end <= hi):
                         ok = True
                         break
+                if not ok:
+                    for r in recs:
+                        lo, hi = r["from"], r["to"]
+                        if lo is not None and d_from < lo:
+                            why.append(f"Kê khai từ {fmt_month(d_from)} trước kỳ TMS ({fmt_month(lo)})")
+                        if hi is not None and d_end > hi:
+                            why.append(f"Kê khai đến {fmt_month(d_end)} sau kỳ TMS ({fmt_month(hi)})")
+                    if not why:
+                        why.append("Kỳ kê khai ngoài kỳ đăng ký TMS")
             valid.append("TRUE" if ok else "FALSE")
+            reasons.append("" if ok else "; ".join(dict.fromkeys(why)))
 
-        if valid[-1] == "TRUE" and mst_nnt:
-            true_counts[mst_nnt] = true_counts.get(mst_nnt, 0) + 1
+        if mst_nnt:
+            total_counts[mst_nnt] = total_counts.get(mst_nnt, 0) + 1
+            if valid[-1] == "TRUE":
+                true_counts[mst_nnt] = true_counts.get(mst_nnt, 0) + 1
 
     out = pl3_df.copy()
+    # thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Lý do sai
+    out["Nguồn khớp"] = matched_by
     out["TMS Từ tháng"] = tms_from
     out["TMS Đến tháng"] = tms_to
-    out["Nguồn khớp"] = matched_by
     out["Hợp lệ"] = valid
-    return out, true_counts
+    out["Lý do sai"] = reasons
+    return out, true_counts, total_counts
 
 
 # ---------------------------------------------------------------------------
 # Bước 3: điền tổng NPT TRUE vào cột cuối Phụ lục 1
 # ---------------------------------------------------------------------------
-def apply_pl1(pl1_df: pd.DataFrame, mst_ref, true_counts: dict) -> pd.DataFrame:
-    """Thêm cột cuối 'Số NPT hợp lệ (TRUE)' vào Phụ lục 1 theo MST NNT."""
+def apply_pl1(pl1_df: pd.DataFrame, mst_ref, true_counts: dict,
+              total_counts: dict | None = None) -> pd.DataFrame:
+    """Thêm cột cuối vào Phụ lục 1 theo MST NNT:
+    - 'Số NPT hợp lệ (TRUE)'
+    - 'Số NPT (TRUE/Tổng kê khai)' dạng '2/3'."""
     col = utils.resolve_column(pl1_df, mst_ref)
     out = pl1_df.copy()
-    out["Số NPT hợp lệ (TRUE)"] = [
-        true_counts.get(_digits(v), "") if _digits(v) else ""
-        for v in out[col]
-    ]
+    total_counts = total_counts or {}
+    trues, ratios = [], []
+    for v in out[col]:
+        d = _digits(v)
+        if not d or (d not in true_counts and d not in total_counts):
+            trues.append(""); ratios.append("")
+            continue
+        t = true_counts.get(d, 0)
+        n = total_counts.get(d, 0)
+        trues.append(t)
+        ratios.append(f"{t}/{n}" if n else str(t))
+    out["Số NPT hợp lệ (TRUE)"] = trues
+    out["Số NPT (TRUE/Tổng kê khai)"] = ratios
     return out

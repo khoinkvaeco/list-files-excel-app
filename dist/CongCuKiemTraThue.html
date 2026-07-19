@@ -201,15 +201,16 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <!-- TAB XML -->
     <section id="tab-xml" style="display:none">
       <div class="card">
-        <h2>Chuyển hóa đơn điện tử XML → Excel</h2>
-        <p class="muted">Tải một hoặc nhiều file XML hóa đơn điện tử. Công cụ trích xuất thành bảng Excel.</p>
+        <h2>Chuyển XML → Excel (hóa đơn điện tử hoặc tờ khai thuế)</h2>
+        <p class="muted">Hỗ trợ 2 loại: XML <b>hóa đơn điện tử</b> (chuẩn TCT) và XML <b>tờ khai thuế HTKK</b> (vd 05/QTT-TNCN) — tờ khai được tách thành nhiều sheet: ToKhaiChinh, ThongTinChung và từng bảng kê/phụ lục với tên cột tiếng Việt.</p>
         <label class="fld"><span>📎 File XML (chọn nhiều file)</span>
           <input type="file" id="f_xml" accept=".xml" multiple></label>
         <button class="btn pri" id="btnXml" disabled>🔄 Chuyển sang Excel</button>
         <div id="xmlMsg"></div>
         <div id="xmlResult" style="display:none">
           <div class="metrics" id="xmlMetrics"></div>
-          <button class="btn pri" id="btnXmlDl">⬇️ Tải file Excel hóa đơn</button>
+          <button class="btn pri" id="btnXmlDl">⬇️ Tải file Excel</button>
+          <div class="subtabs" id="xmlTabs"></div>
           <div class="tblwrap" style="margin-top:10px" id="xmlPreview"></div>
         </div>
       </div>
@@ -675,15 +676,104 @@ function parseInvoiceXML(text){
   }
   return {inv,items,found:nodes.length>0};
 }
-function genericFlatten(text){
-  const doc=new DOMParser().parseFromString(text,'text/xml');
-  if(doc.querySelector('parsererror'))throw new Error('XML không hợp lệ');
-  const byTag={};const walk=e=>{if(e.children.length){const t=xmlLocal(e.tagName);(byTag[t]=byTag[t]||[]).push(e);}for(const c of e.children)walk(c);};walk(doc.documentElement);
-  let best=null,bestScore=-1;
-  for(const t in byTag){const els=byTag[t];if(els.length<2)continue;const avg=els.reduce((s,e)=>s+[...e.children].filter(c=>!c.children.length).length,0)/els.length;if(avg<2)continue;const sc=els.length*avg;if(sc>bestScore){bestScore=sc;best=els;}}
-  if(!best)return {header:[],rows:[]};
-  const cols=[];const rows=best.map(el=>{const o={};for(const c of el.children){if(c.children.length)continue;let k=xmlLocal(c.tagName);if(k in o){let i=2;while((k+'_'+i)in o)i++;k=k+'_'+i;}o[k]=(c.textContent||'').trim();if(!cols.includes(k))cols.push(k);}return o;});
-  return {header:cols,rows:rows.map(o=>cols.map(k=>o[k]==null?'':o[k]))};
+/* ---- Chuyển XML TỜ KHAI THUẾ (HTKK, vd 05/QTT-TNCN) thành nhiều sheet ---- */
+const FORM05={title:'Mẫu số: 05/QTT-TNCN',sections:[
+ {heading:'I. NGHĨA VỤ KHẤU TRỪ THUẾ CỦA TỔ CHỨC, CÁ NHÂN TRẢ THU NHẬP',rows:[
+  ['1','Tổng số người lao động','ct16','Người'],
+  ['','Trong đó: Cá nhân cư trú có hợp đồng lao động','ct17','Người'],
+  ['2','Tổng số cá nhân đã khấu trừ thuế [18]=[19]+[20]','ct18','Người'],
+  ['2.1','Cá nhân cư trú','ct19','Người'],
+  ['2.2','Cá nhân không cư trú','ct20','Người'],
+  ['3','Tổng số cá nhân thuộc diện được miễn, giảm thuế theo Hiệp định tránh đánh thuế hai lần','ct21','Người'],
+  ['4','Tổng số cá nhân giảm trừ gia cảnh','ct22','Người'],
+  ['5','Tổng thu nhập chịu thuế trả cho cá nhân [23]=[24]+[25]','ct23','VNĐ'],
+  ['5.1','Cá nhân cư trú','ct24','VNĐ'],
+  ['5.2','Cá nhân không cư trú','ct25','VNĐ'],
+  ['5.3','Trong đó: Tổng TNCT từ tiền phí mua bảo hiểm nhân thọ, bảo hiểm không bắt buộc khác của DN bảo hiểm không thành lập tại VN cho người lao động','ct26','VNĐ'],
+  ['6','Trong đó tổng thu nhập chịu thuế được miễn theo quy định của Hợp đồng dầu khí','ct27','VNĐ'],
+  ['7','Tổng TNCT trả cho cá nhân thuộc diện phải khấu trừ thuế [28]=[29]+[30]','ct28','VNĐ'],
+  ['7.1','Cá nhân cư trú','ct29','VNĐ'],
+  ['7.2','Cá nhân không cư trú','ct30','VNĐ'],
+  ['8','Tổng số thuế TNCN đã khấu trừ [31]=[32]+[33]','ct31','VNĐ'],
+  ['8.1','Cá nhân cư trú','ct32','VNĐ'],
+  ['8.2','Cá nhân không cư trú','ct33','VNĐ'],
+  ['8.3','Trong đó: Tổng số thuế TNCN đã khấu trừ trên tiền phí mua bảo hiểm nhân thọ... cho người lao động','ct34','VNĐ'],
+ ]},
+ {heading:'II. NGHĨA VỤ QUYẾT TOÁN THAY CHO CÁ NHÂN',rows:[
+  ['1','Tổng số cá nhân uỷ quyền cho tổ chức, cá nhân trả thu nhập quyết toán thay','ct35','Người'],
+  ['2','Tổng số thuế thu nhập cá nhân đã khấu trừ','ct36','VNĐ'],
+  ['','Trong đó: Số thuế TNCN đã khấu trừ tại tổ chức trước khi điều chuyển (chỉ tiêu [04])','ct37','VNĐ'],
+  ['3','Tổng số thuế thu nhập cá nhân phải nộp','ct38','VNĐ'],
+  ['4','Tổng số thuế TNCN được miễn do số còn phải nộp sau ủy quyền QT ≤ 50.000 đồng','ct39','VNĐ'],
+  ['5','Tổng số thuế TNCN còn phải nộp [40]=([38]–[36]–[39])>0','ct40','VNĐ'],
+  ['6','Tổng số thuế TNCN đã nộp thừa [41]=([38]–[36]–[39])<0','ct41','VNĐ'],
+ ]}]};
+const FORM_CT=new Set();FORM05.sections.forEach(s=>s.rows.forEach(r=>FORM_CT.add(r[2])));
+const FIELD_LABELS={maDVu:'Mã dịch vụ',tenDVu:'Tên dịch vụ',pbanDVu:'Phiên bản',maTKhai:'Mã tờ khai',tenTKhai:'Tên tờ khai',moTaBMau:'Mô tả biểu mẫu',pbanTKhaiXML:'Phiên bản tờ khai',loaiTKhai:'Loại tờ khai',soLan:'Số lần',kieuKy:'Kiểu kỳ',kyKKhai:'Kỳ kê khai',kyKKhaiTuThang:'Kỳ từ tháng',kyKKhaiDenThang:'Kỳ đến tháng',maCQTNoiNop:'Mã CQT nơi nộp',tenCQTNoiNop:'Tên CQT nơi nộp',ngayLapTKhai:'Ngày lập tờ khai',ngayKy:'Ngày ký',mst:'Mã số thuế',tenNNT:'Tên người nộp thuế',dchiNNT:'Địa chỉ',maHuyenNNT:'Mã quận/huyện',tenHuyenNNT:'Quận/Huyện',maTinhNNT:'Mã tỉnh',tenTinhNNT:'Tỉnh/Thành phố',dthoaiNNT:'Điện thoại',faxNNT:'Fax',emailNNT:'Email',toChucCoQTTTheoUyQuyen:'Tổ chức QTT theo uỷ quyền [04]',ma_THQuyetToan:'Mã trường hợp quyết toán',ten_THQuyetToan:'Trường hợp quyết toán'};
+const COL_LABELS_051={coDieuChinhSoLieu:'Có điều chỉnh số liệu',ct07:'Họ và tên',ct08:'Mã số thuế',ct09a_ma:'Mã loại giấy tờ',ct09a_ten:'Loại giấy tờ',ct09:'Số CMND/CCCD/Hộ chiếu',ct10:'Cá nhân uỷ quyền QT thay',ct11:'CN nước ngoài uỷ quyền QT <12 tháng',ct12:'Thu nhập chịu thuế',ct13:'TNCT trước điều chuyển',ct14:'TNCT miễn theo Hiệp định',ct15:'TNCT miễn theo HĐ dầu khí',ct16:'Số lượng NPT giảm trừ',ct17:'Tổng giảm trừ gia cảnh',ct18:'Từ thiện, nhân đạo, khuyến học',ct19:'Bảo hiểm được trừ',ct20:'Quỹ hưu trí tự nguyện được trừ',ct21:'Thu nhập tính thuế',ct22:'Số thuế TNCN đã khấu trừ',ct23:'Số thuế đã khấu trừ trước điều chuyển',ct24:'Tổng số thuế phải nộp',ct25:'Số thuế đã nộp thừa',ct26:'Số thuế còn phải nộp',ct27:'Được miễn thuế còn phải nộp ≤50.000đ'};
+const COL_LABELS_052={coDieuChinhSoLieu:'Có điều chỉnh số liệu',ct07:'Họ và tên',ct08:'Mã số thuế',ct09a_ma:'Mã loại giấy tờ',ct09a_ten:'Loại giấy tờ',ct09:'Số CMND/CCCD/Hộ chiếu',ct10:'Cá nhân không cư trú',ct11:'Thu nhập chịu thuế',ct12:'TNCT được miễn theo Hiệp định',ct13:'TNCT được miễn theo HĐ dầu khí',ct14:'Thu nhập tính thuế',ct15:'Số thuế TNCN đã khấu trừ',ct16:'Được miễn thuế còn phải nộp ≤50.000đ'};
+const COL_LABELS_053={ct07:'Họ và tên NNT',ct08:'Mã số thuế NNT',ct09:'Họ và tên người phụ thuộc',ct10:'Ngày sinh NPT',ct11:'Mã số thuế NPT',ct12_ma:'Mã quan hệ',ct12_ten:'Quan hệ với NNT',ct13:'Số CMND/CCCD/Hộ chiếu NPT',ct14_ma:'Mã loại giấy tờ',ct14_ten:'Loại giấy tờ NPT',ct15:'Thời điểm bắt đầu tính giảm trừ',ct16:'Thời điểm kết thúc tính giảm trừ'};
+function colLabelMap(t){if(t.includes('05_1'))return COL_LABELS_051;if(t.includes('05_2'))return COL_LABELS_052;if(t.includes('05_3'))return COL_LABELS_053;return null;}
+const xChildren=n=>Array.from(n.childNodes).filter(x=>x.nodeType===1);
+function repeatedChildName(node){
+  const kids=xChildren(node);if(kids.length<2)return null;
+  const counts={};for(const k of kids){if(xChildren(k).length>0){const n=xmlLocal(k.tagName);counts[n]=(counts[n]||0)+1;}}
+  let best=null,mx=0;for(const n in counts){if(counts[n]>mx){mx=counts[n];best=n;}}
+  return mx>=2?best:null;
+}
+function collectTablesX(node,tables){
+  const name=repeatedChildName(node);
+  if(name){tables.push({title:xmlLocal(node.tagName),rows:xChildren(node).filter(c=>xmlLocal(c.tagName)===name)});return;}
+  for(const c of xChildren(node))collectTablesX(c,tables);
+}
+function leafValuesX(node,prefix,out){
+  const kids=xChildren(node);
+  if(!kids.length){const v=(node.textContent||'').trim();if(v)out.push({path:prefix,value:v});return;}
+  const rep=repeatedChildName(node);
+  for(const c of kids){if(rep&&xmlLocal(c.tagName)===rep)continue;
+    leafValuesX(c,prefix?prefix+'/'+xmlLocal(c.tagName):xmlLocal(c.tagName),out);}
+}
+function maybeNumber(v){
+  if(/^-?\d+$/.test(v)){const d=v.replace('-','');if((d.startsWith('0')&&d!=='0')||d.length>15)return v;const n=parseInt(v,10);return Number.isSafeInteger(n)?n:v;}
+  if(/^-?\d+\.\d+$/.test(v)){const f=parseFloat(v);return isNaN(f)?v:f;}
+  return v;
+}
+function buildTaxSheets(text){
+  const doc=new DOMParser().parseFromString(text,'application/xml');
+  if(doc.querySelector('parsererror'))throw new Error('File XML không hợp lệ hoặc bị lỗi định dạng.');
+  const root=doc.documentElement;
+  const tables=[];collectTablesX(root,tables);
+  const fields=[];leafValuesX(root,'',fields);
+  const sheets={};
+  const ctVal={};
+  for(const f of fields){const leaf=f.path.split('/').pop();if(FORM_CT.has(leaf)&&!(leaf in ctVal))ctVal[leaf]=f.value;}
+  const hasForm=Object.keys(ctVal).length>0;
+  if(hasForm){
+    const aoa=[[FORM05.title,'','','',''],['STT','Chỉ tiêu','Mã chỉ tiêu','Đơn vị tính','Số người/Số tiền']];
+    for(const sec of FORM05.sections){
+      aoa.push([sec.heading,'','','','']);
+      for(const [stt,ten,ct,dv] of sec.rows){const raw=ctVal[ct];aoa.push([stt,ten,'['+ct.replace('ct','')+']',dv,raw===undefined?'':maybeNumber(raw)]);}
+    }
+    sheets['ToKhaiChinh']=aoa;
+  }
+  const info=[['Nhóm','Chỉ tiêu','Giá trị']];
+  for(const f of fields){
+    const parts=f.path.split('/');const leaf=parts[parts.length-1];
+    if(hasForm&&FORM_CT.has(leaf))continue;
+    info.push([parts.length>=2?parts[parts.length-2]:'',FIELD_LABELS[leaf]||leaf,maybeNumber(f.value)]);
+  }
+  if(info.length>1)sheets['ThongTinChung']=info;
+  for(const t of tables){
+    const cols=[];
+    for(const r of t.rows){for(const c of xChildren(r)){const n=xmlLocal(c.tagName);if(!cols.includes(n))cols.push(n);}}
+    const labels=colLabelMap(t.title);
+    const aoa=[['STT',...cols.map(c=>labels&&labels[c]?labels[c]:c)]];
+    if(labels)aoa.push(['',...cols]);
+    t.rows.forEach((r,i)=>{const m={};for(const c of xChildren(r))m[xmlLocal(c.tagName)]=(c.textContent||'').trim();
+      aoa.push([i+1,...cols.map(col=>maybeNumber(m[col]??''))]);});
+    sheets[t.title.slice(0,31)||'Sheet']=aoa;
+  }
+  return sheets;
 }
 
 /* ================= GỘP FILE ================= */
@@ -730,37 +820,50 @@ function buildTmsNpt(mat,hdrRow,c){
 function reconcilePL3(mat,hdrRow,c,lk){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
-  const out=[header.concat(['TMS Từ tháng','TMS Đến tháng','Nguồn khớp','Hợp lệ'])];
-  const counts={};let nTrue=0,nFalse=0;
+  // thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Lý do sai
+  const out=[header.concat(['Nguồn khớp','TMS Từ tháng','TMS Đến tháng','Hợp lệ','Lý do sai'])];
+  const counts={},totals={};let nTrue=0,nFalse=0;
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
     const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
     const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
-    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','']));continue;}
+    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','']));continue;}
     let recs=null,src='';
     if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
     else if(name&&lk.byName[mstNnt+'|'+name]){recs=lk.byName[mstNnt+'|'+name];src='Tên NPT';}
     const dFrom=monthIndex(row[ix.tu_thang]),dTo=monthIndex(row[ix.den_thang]);
-    let ok=false,tf='',tt='';
-    if(!recs){src='Không tìm thấy';}
+    let ok=false,tf='',tt='',why=[];
+    if(!recs){src='Không tìm thấy';why.push('Không có trên TMS');}
     else{
       tf=recs.map(r=>fmtMonth(r.from)).join('; ');tt=recs.map(r=>fmtMonth(r.to)).join('; ');
-      if(dFrom!=null){const dEnd=dTo!=null?dTo:dFrom;
-        for(const r of recs){const lo=r.from!=null?r.from:dFrom;if(dFrom>=lo&&(r.to==null||dEnd<=r.to)){ok=true;break;}}}
+      if(dFrom==null){why.push('Thiếu Từ tháng kê khai');}
+      else{const dEnd=dTo!=null?dTo:dFrom;
+        for(const r of recs){const lo=r.from!=null?r.from:dFrom;if(dFrom>=lo&&(r.to==null||dEnd<=r.to)){ok=true;break;}}
+        if(!ok){
+          for(const r of recs){
+            if(r.from!=null&&dFrom<r.from)why.push(`Kê khai từ ${fmtMonth(dFrom)} trước kỳ TMS (${fmtMonth(r.from)})`);
+            if(r.to!=null&&dEnd>r.to)why.push(`Kê khai đến ${fmtMonth(dEnd)} sau kỳ TMS (${fmtMonth(r.to)})`);
+          }
+          if(!why.length)why.push('Kỳ kê khai ngoài kỳ đăng ký TMS');
+        }
+      }
     }
-    out.push(base.concat([tf,tt,src,ok?'TRUE':'FALSE']));
+    out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE',ok?'':[...new Set(why)].join('; ')]));
+    if(mstNnt)totals[mstNnt]=(totals[mstNnt]||0)+1;
     if(ok){nTrue++;if(mstNnt)counts[mstNnt]=(counts[mstNnt]||0)+1;}else nFalse++;
   }
-  return {out,counts,nTrue,nFalse};
+  return {out,counts,totals,nTrue,nFalse};
 }
-function applyPL1(mat,hdrRow,mstRef,counts){
+function applyPL1(mat,hdrRow,mstRef,counts,totals){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix=resolveIndex(header,mstRef);
-  const out=[header.concat(['Số NPT hợp lệ (TRUE)'])];
+  const out=[header.concat(['Số NPT hợp lệ (TRUE)','Số NPT (TRUE/Tổng kê khai)'])];
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
     const d=digitsOf(row[ix]);
-    out.push(base.concat([d&&counts[d]!=null?counts[d]:'']));
+    const has=d&&((counts[d]!=null)||(totals[d]!=null));
+    const t=has?(counts[d]||0):'';const n=has?(totals[d]||0):'';
+    out.push(base.concat([has?t:'',has?(t+'/'+n):'']));
   }
   return out;
 }
@@ -886,19 +989,35 @@ $('btnXml').onclick=async()=>{
   try{
     const invCols=['Ký hiệu mẫu số','Ký hiệu hóa đơn','Số hóa đơn','Ngày lập','MST người bán','Tên người bán','MST người mua','Tên người mua','Tổng tiền chưa thuế','Tổng tiền thuế','Tổng tiền thanh toán','Trạng thái hóa đơn','Tên hàng hóa'];
     const itemCols=['Số hóa đơn','MST người bán','STT','Tên hàng hóa','Đơn vị tính','Số lượng','Đơn giá','Thành tiền','Thuế suất'];
-    let inv=[],items=[],generic=null;
-    for(const f of files){const text=await f.text();const r=parseInvoiceXML(text);if(r.found){inv=inv.concat(r.inv);items=items.concat(r.items);}else{const g=genericFlatten(text);if(!generic)generic={header:g.header,rows:[]};generic.rows=generic.rows.concat(g.rows);}}
-    let sheets;
-    if(inv.length){sheets={'Hóa đơn':[invCols].concat(inv)};if(items.length)sheets['Chi tiết hàng hóa']=[itemCols].concat(items);}
-    else if(generic&&generic.rows.length){sheets={'Dữ liệu XML':[generic.header].concat(generic.rows)};}
-    else{throw new Error('Không trích xuất được dữ liệu từ XML.');}
+    let inv=[],items=[];const formSheets={};
+    for(const f of files){
+      const text=await f.text();
+      const r=parseInvoiceXML(text);
+      if(r.found){inv=inv.concat(r.inv);items=items.concat(r.items);}
+      else{
+        // không phải hóa đơn -> chuyển theo dạng TỜ KHAI THUẾ (nhiều sheet)
+        const ts=buildTaxSheets(text);
+        for(const nm in ts){let k=nm,i=1;while(k in formSheets)k=nm.slice(0,27)+'_'+(i++);formSheets[k]=ts[nm];}
+      }
+    }
+    const sheets={};
+    if(inv.length){sheets['Hóa đơn']=[invCols].concat(inv);if(items.length)sheets['Chi tiết hàng hóa']=[itemCols].concat(items);}
+    Object.assign(sheets,formSheets);
+    if(!Object.keys(sheets).length)throw new Error('Không trích xuất được dữ liệu từ XML.');
     XMLRES=sheets;$('xmlMsg').innerHTML='';$('xmlResult').style.display='block';
-    const met=$('xmlMetrics');met.innerHTML='';const first=Object.values(sheets)[0];
-    met.innerHTML=`<div class="metric"><div class="k">Số dòng</div><div class="v">${first.length-1}</div></div>`;
-    renderTable($('xmlPreview'),first,400);
+    const names=Object.keys(sheets);
+    const total=names.reduce((s,n)=>s+sheets[n].length-1,0);
+    $('xmlMetrics').innerHTML=
+      `<div class="metric"><div class="k">Số sheet</div><div class="v">${names.length}</div></div>`+
+      `<div class="metric"><div class="k">Tổng số dòng</div><div class="v">${total}</div></div>`;
+    const tabs=$('xmlTabs');tabs.innerHTML='';
+    names.forEach((n,i)=>{const b=document.createElement('button');b.className='subtab'+(i===0?' on':'');b.textContent=n;
+      b.onclick=()=>{document.querySelectorAll('#xmlTabs .subtab').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderTable($('xmlPreview'),sheets[n],400);};
+      tabs.appendChild(b);});
+    renderTable($('xmlPreview'),sheets[names[0]],400);
   }catch(err){$('xmlMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';}
 };
-$('btnXmlDl').onclick=()=>{if(XMLRES)writeWB(XMLRES,'hoa_don_tu_xml.xlsx');};
+$('btnXmlDl').onclick=()=>{if(XMLRES)writeWB(XMLRES,'chuyen_doi_tu_xml.xlsx');};
 
 /* ---- Merge tab ---- */
 $('f_merge').onchange=e=>{$('btnMerge').disabled=!e.target.files.length;};
@@ -957,7 +1076,7 @@ $('btnNpt').onclick=()=>{
       const pl1Mat=sheetMatrix(NF.qt,$('npt_pl1_sheet').value);
       const lk=buildTmsNpt(tmsMat,+$('tm_hdr').value||1,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
       const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value},lk);
-      const pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts);
+      const pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts,rc.totals);
       NPTRES={'PL3 đối chiếu NPT':rc.out,'PL1 tổng hợp NPT':pl1};
       $('nptMsg').innerHTML='';$('nptResult').style.display='block';
       $('nptMetrics').innerHTML=

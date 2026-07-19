@@ -413,66 +413,85 @@ def render_audit(cfg):
 # TAB 2: CHUYỂN XML HÓA ĐƠN -> EXCEL
 # ---------------------------------------------------------------------------
 def render_xml_converter():
-    st.subheader("Chuyển hóa đơn điện tử XML → Excel")
+    from tax_audit import xml_form
+
+    st.subheader("Chuyển XML → Excel (hóa đơn điện tử hoặc tờ khai thuế)")
     st.caption(
-        "Tải lên một hoặc nhiều file XML hóa đơn điện tử (chuẩn Tổng cục Thuế). "
-        "Công cụ trích xuất thành bảng Excel; có thể dùng luôn làm *File hóa đơn "
-        "điện tử* ở tab Kiểm tra bảng kê."
+        "Hỗ trợ 2 loại: XML hóa đơn điện tử (chuẩn TCT) và XML **tờ khai thuế HTKK** "
+        "(vd 05/QTT-TNCN) — tờ khai được tách thành nhiều sheet: ToKhaiChinh, "
+        "ThongTinChung và từng bảng kê/phụ lục với tên cột tiếng Việt."
     )
 
     xml_files = st.file_uploader(
-        "📎 File XML hóa đơn (chọn nhiều file cùng lúc)",
+        "📎 File XML (chọn nhiều file cùng lúc)",
         type=["xml"],
         accept_multiple_files=True,
     )
 
-    if st.button(
-        "🔄 Chuyển sang Excel", type="primary", disabled=not xml_files
-    ):
-        try:
-            df_inv, df_items = xml_invoice.parse_files(xml_files)
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Lỗi khi đọc XML: {e}")
-            st.exception(e)
-            st.stop()
+    if st.button("🔄 Chuyển sang Excel", type="primary", disabled=not xml_files):
+        inv_all, items_all = [], []
+        form_sheets: dict = {}
+        errors = []
+        for f in xml_files:
+            try:
+                f.seek(0)
+                data = f.read()
+                text = data.decode("utf-8", errors="ignore")
+                inv, items = xml_invoice.parse_xml_bytes(data, f.name)
+                if inv:
+                    inv_all.extend(inv)
+                    items_all.extend(items)
+                else:
+                    # không phải hóa đơn -> chuyển theo dạng TỜ KHAI
+                    for name, df in xml_form.build_sheets(text).items():
+                        key = name if name not in form_sheets else f"{name[:27]}_{len(form_sheets)}"
+                        form_sheets[key] = df
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{f.name}: {e}")
 
-        if df_inv.empty:
+        if errors:
+            st.error("Một số file lỗi: " + "; ".join(errors))
+        if not inv_all and not form_sheets:
             st.warning("Không trích xuất được dữ liệu nào từ các file XML đã tải.")
             st.stop()
 
-        # nếu chỉ có cột lỗi -> báo lỗi cụ thể
-        if set(df_inv.columns) <= {"File nguồn", "Lỗi"} and "Lỗi" in df_inv.columns:
-            st.error("Không đọc được file XML:")
-            show_df(df_inv)
-            st.stop()
-
-        st.session_state["xml_result"] = (df_inv, df_items)
+        sheets: dict = {}
+        if inv_all:
+            inv_cols = ["Ký hiệu mẫu số", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày lập",
+                        "MST người bán", "Tên người bán", "MST người mua", "Tên người mua",
+                        "Tổng tiền chưa thuế", "Tổng tiền thuế", "Tổng tiền thanh toán",
+                        "Trạng thái hóa đơn", "Tên hàng hóa", "File nguồn"]
+            df_inv = pd.DataFrame(inv_all)
+            for c in inv_cols:
+                if c not in df_inv.columns:
+                    df_inv[c] = ""
+            sheets["Hóa đơn"] = df_inv[inv_cols]
+            if items_all:
+                sheets["Chi tiết hàng hóa"] = pd.DataFrame(items_all)
+        sheets.update(form_sheets)
+        st.session_state["xml_result"] = sheets
 
     if "xml_result" in st.session_state:
-        df_inv, df_items = st.session_state["xml_result"]
-
+        sheets = st.session_state["xml_result"]
         c1, c2 = st.columns(2)
-        c1.metric("Số hóa đơn đọc được", len(df_inv))
-        c2.metric("Số dòng hàng hóa", len(df_items))
+        c1.metric("Số sheet", len(sheets))
+        c2.metric("Tổng số dòng", sum(len(d) for d in sheets.values()))
 
-        sheets = {"Hóa đơn": df_inv}
-        if not df_items.empty:
-            sheets["Chi tiết hàng hóa"] = df_items
         excel_bytes = utils.to_excel_bytes(sheets)
         st.download_button(
-            "⬇️ Tải file Excel hóa đơn",
+            "⬇️ Tải file Excel",
             data=excel_bytes,
-            file_name="hoa_don_dien_tu_tu_xml.xlsx",
+            file_name="chuyen_doi_tu_xml.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
         )
 
         st.markdown("#### Xem trước")
-        st.markdown("**Bảng hóa đơn**")
-        show_df(df_inv)
-        if not df_items.empty:
-            st.markdown("**Chi tiết hàng hóa**")
-            show_df(df_items)
+        tabs = st.tabs(list(sheets.keys()))
+        for tab, name in zip(tabs, sheets.keys()):
+            with tab:
+                st.caption(f"{len(sheets[name]):,} dòng")
+                show_df(sheets[name])
 
 
 # ---------------------------------------------------------------------------
@@ -628,8 +647,8 @@ def render_npt():
             pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
             pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
             by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
-            pl3_out, counts = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
-            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts)
+            pl3_out, counts, totals = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
+            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals)
         except Exception as e:  # noqa: BLE001
             st.error(f"Lỗi: {e}")
             st.exception(e)
