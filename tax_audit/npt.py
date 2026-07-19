@@ -45,11 +45,12 @@ def month_index(value):
     s = str(value).strip()
     if not s or s.lower() in ("nan", "nat", "none"):
         return None
-    m = re.fullmatch(r"(\d{1,2})\s*/\s*(\d{4})", s)
+    # mm/yyyy, mm.yyyy, mm-yyyy (TMS xuất dạng '01.2023')
+    m = re.fullmatch(r"(\d{1,2})\s*[./-]\s*(\d{4})", s)
     if m:
         mm, yy = int(m.group(1)), int(m.group(2))
         return yy * 12 + mm if 1 <= mm <= 12 else None
-    m = re.fullmatch(r"(\d{4})\s*[-/]\s*(\d{1,2})", s)
+    m = re.fullmatch(r"(\d{4})\s*[./-]\s*(\d{1,2})", s)
     if m:
         yy, mm = int(m.group(1)), int(m.group(2))
         return yy * 12 + mm if 1 <= mm <= 12 else None

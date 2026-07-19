@@ -250,9 +250,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             <label class="fld"><span>Tên NPT</span><input type="text" id="tm_ten" value="F"></label>
           </div>
           <div class="row2">
-            <label class="fld"><span>MST NPT</span><input type="text" id="tm_mstnpt" value="H"></label>
-            <label class="fld"><span>Từ tháng</span><input type="text" id="tm_tu" value="R"></label>
-            <label class="fld"><span>Đến tháng</span><input type="text" id="tm_den" value="S"></label>
+            <label class="fld"><span>MST NPT</span><input type="text" id="tm_mstnpt" value="G"></label>
+            <label class="fld"><span>Từ tháng</span><input type="text" id="tm_tu" value="L"></label>
+            <label class="fld"><span>Đến tháng</span><input type="text" id="tm_den" value="M"></label>
           </div>
           <h3>Phụ lục 05-1</h3>
           <div class="row2">
@@ -707,8 +707,8 @@ function monthIndex(v){
   if(v instanceof Date&&!isNaN(v))return v.getFullYear()*12+(v.getMonth()+1);
   if(typeof v==='number'){if(v>=20000&&v<=60000){const d=serialToDMY(v);return d.y*12+d.m;}return null;}
   const s=String(v).trim();if(!s||['nan','nat','none'].includes(s.toLowerCase()))return null;
-  let m=s.match(/^(\d{1,2})\s*\/\s*(\d{4})$/);if(m){const mm=+m[1];return (mm>=1&&mm<=12)?(+m[2]*12+mm):null;}
-  m=s.match(/^(\d{4})\s*[-\/]\s*(\d{1,2})$/);if(m){const mm=+m[2];return (mm>=1&&mm<=12)?(+m[1]*12+mm):null;}
+  let m=s.match(/^(\d{1,2})\s*[\/.\-]\s*(\d{4})$/);if(m){const mm=+m[1];return (mm>=1&&mm<=12)?(+m[2]*12+mm):null;}
+  m=s.match(/^(\d{4})\s*[\/.\-]\s*(\d{1,2})$/);if(m){const mm=+m[2];return (mm>=1&&mm<=12)?(+m[1]*12+mm):null;}
   const dd=parseDate(v);return dd?(dd.y*12+dd.m):null;
 }
 const fmtMonth=i=>(i==null||i==='')?'':String(((i-1)%12)+1).padStart(2,'0')+'/'+Math.floor((i-1)/12);
