@@ -613,9 +613,9 @@ def render_npt():
         tmsc = {
             "mst_nnt": r2[1].text_input("MST NNT", "E", key="n_ta"),
             "ten_npt": r2[2].text_input("Tên NPT", "F", key="n_tb"),
-            "mst_npt": r2[3].text_input("MST NPT", "H", key="n_tc"),
-            "tu_thang": r2[4].text_input("Từ tháng", "R", key="n_td"),
-            "den_thang": r2[5].text_input("Đến tháng", "S", key="n_te"),
+            "mst_npt": r2[3].text_input("MST NPT", "G", key="n_tc"),
+            "tu_thang": r2[4].text_input("Từ tháng", "L", key="n_td"),
+            "den_thang": r2[5].text_input("Đến tháng", "M", key="n_te"),
         }
         st.markdown("**Phụ lục 05-1**")
         r3 = st.columns(6)
