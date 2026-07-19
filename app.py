@@ -615,6 +615,16 @@ def render_npt():
             except Exception:  # noqa: BLE001
                 pass
 
+    st.markdown(
+        "**(Tùy chọn) Kiểm tra ủy quyền quyết toán** — đối chiếu PL1 với file "
+        "*'nhiều nguồn TN'* để gắn cờ cá nhân có nhiều nguồn thu nhập."
+    )
+    f_ms = st.file_uploader(
+        "🧾 File 'nhiều nguồn TN' (mỗi sheet là 1 năm)", type=["xlsx", "xls"],
+        key="npt_ms",
+    )
+    ms_hdr = st.number_input("Dòng tiêu đề file nhiều nguồn TN", 1, 20, 1, key="npt_ms_hdr")
+
     with st.expander("⚙️ Cấu hình cột (chữ cái Excel hoặc tên tiêu đề)", expanded=False):
         st.markdown("**Phụ lục 05-3** (dòng tiêu đề + các cột)")
         r1 = st.columns(6)
@@ -649,6 +659,13 @@ def render_npt():
             by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
             pl3_out, counts, totals = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
             pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals)
+            if f_ms is not None:
+                ms_sheets = {
+                    sn: utils.read_excel(f_ms, ms_hdr, sheet_name=sn)
+                    for sn in utils.list_sheets(f_ms)
+                }
+                ms_map = npt.classify_multi_source(ms_sheets)
+                pl1_out = npt.apply_multi_source(pl1_out, pl1_mst, ms_map)
         except Exception as e:  # noqa: BLE001
             st.error(f"Lỗi: {e}")
             st.exception(e)
@@ -677,7 +694,10 @@ def render_npt():
         )
         st.markdown("**Phụ lục 3 — đối chiếu** (TMS Từ/Đến tháng, Nguồn khớp, Hợp lệ ở các cột cuối)")
         show_df(pl3_out)
-        st.markdown("**Phụ lục 1 — cột cuối: Số NPT hợp lệ (TRUE)**")
+        st.markdown(
+            "**Phụ lục 1 — cột cuối: Số NPT hợp lệ (TRUE)** "
+            "(và *Ủy quyền QT (nhiều nguồn TN)* nếu có nạp file nhiều nguồn TN)"
+        )
         show_df(pl1_out)
 
 

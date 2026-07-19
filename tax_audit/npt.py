@@ -118,6 +118,7 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
     c = {k: utils.resolve_column(pl3_df, v) for k, v in cfg.items()}
 
     tms_from, tms_to, matched_by, valid, reasons = [], [], [], [], []
+    row_nnt: list = []  # MST NNT của từng dòng (để dựng cột tỉ lệ TRUE/Tổng)
     true_counts: dict = {}
     total_counts: dict = {}
 
@@ -133,8 +134,9 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
         is_ct_row = bool(re.fullmatch(r"ct\d+(_\w+)?", raw_mst_nnt, flags=re.I))
         if is_ct_row or (not mst_nnt and not mst_npt and not name):
             tms_from.append(""); tms_to.append(""); matched_by.append("")
-            valid.append(""); reasons.append("")
+            valid.append(""); reasons.append(""); row_nnt.append("")
             continue
+        row_nnt.append(mst_nnt)
 
         recs, src = [], ""
         if mst_npt and mst_npt in by_mst:
@@ -180,12 +182,24 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
             if valid[-1] == "TRUE":
                 true_counts[mst_nnt] = true_counts.get(mst_nnt, 0) + 1
 
+    # cột tỉ lệ NPT hợp lệ theo từng NNT (TRUE/Tổng kê khai) — chuyển từ PL1 sang PL3
+    ratio_col = []
+    for m in row_nnt:
+        if m and m in total_counts:
+            t = true_counts.get(m, 0)
+            n = total_counts.get(m, 0)
+            ratio_col.append(f"{t}/{n}" if n else str(t))
+        else:
+            ratio_col.append("")
+
     out = pl3_df.copy()
-    # thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Lý do sai
+    # thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ
+    #                 -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
     out["Nguồn khớp"] = matched_by
     out["TMS Từ tháng"] = tms_from
     out["TMS Đến tháng"] = tms_to
     out["Hợp lệ"] = valid
+    out["Số NPT (TRUE/Tổng kê khai)"] = ratio_col
     out["Lý do sai"] = reasons
     return out, true_counts, total_counts
 
@@ -195,22 +209,116 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
 # ---------------------------------------------------------------------------
 def apply_pl1(pl1_df: pd.DataFrame, mst_ref, true_counts: dict,
               total_counts: dict | None = None) -> pd.DataFrame:
-    """Thêm cột cuối vào Phụ lục 1 theo MST NNT:
-    - 'Số NPT hợp lệ (TRUE)'
-    - 'Số NPT (TRUE/Tổng kê khai)' dạng '2/3'."""
+    """Thêm cột cuối vào Phụ lục 1 theo MST NNT: 'Số NPT hợp lệ (TRUE)'.
+
+    (Cột tỉ lệ 'Số NPT (TRUE/Tổng kê khai)' đã chuyển sang hiển thị ở PL3.)"""
     col = utils.resolve_column(pl1_df, mst_ref)
     out = pl1_df.copy()
     total_counts = total_counts or {}
-    trues, ratios = [], []
+    trues = []
     for v in out[col]:
         d = _digits(v)
         if not d or (d not in true_counts and d not in total_counts):
-            trues.append(""); ratios.append("")
+            trues.append("")
             continue
-        t = true_counts.get(d, 0)
-        n = total_counts.get(d, 0)
-        trues.append(t)
-        ratios.append(f"{t}/{n}" if n else str(t))
+        trues.append(true_counts.get(d, 0))
     out["Số NPT hợp lệ (TRUE)"] = trues
-    out["Số NPT (TRUE/Tổng kê khai)"] = ratios
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Ủy quyền quyết toán đúng/sai — đối chiếu PL1 với file "nhiều nguồn TN"
+# ---------------------------------------------------------------------------
+def _find_col(df: pd.DataFrame, *cands):
+    """Tìm cột theo tên tiêu đề — độc lập với chế độ cột toàn cục (file 'nhiều
+    nguồn TN' các sheet có bố cục cột khác nhau nhưng tên tiêu đề nhất quán).
+
+    Ưu tiên khớp CHÍNH XÁC (sau khi bỏ dấu) trước, rồi mới đến khớp CHỨA — tránh
+    'MST cá nhân' khớp nhầm 'CQT quản lý MST cá nhân', hay 'Thuế TNCN' khớp nhầm
+    'Thu nhập chịu thuế TNCN'."""
+    norm = {col: _norm_name(col) for col in df.columns}
+    cns = [_norm_name(c) for c in cands if _norm_name(c)]
+    for cn in cns:  # khớp chính xác
+        for col in df.columns:
+            if norm[col] == cn:
+                return col
+    for cn in cns:  # khớp chứa
+        for col in df.columns:
+            if cn in norm[col]:
+                return col
+    return None
+
+
+# thứ tự ưu tiên khi 1 MST xuất hiện ở nhiều năm/sheet
+_MS_PRIORITY = [
+    "nhiều nguồn tn",
+    "05-2 dưới 2 triệu, không khấu trừ thuế",
+    "OK",
+]
+
+
+def _ms_verdict(rows_051, rows_052, c_inc, c_tax) -> str:
+    """Xét kết quả 'nhiều nguồn TN' cho 1 MST trong 1 sheet (năm)."""
+    if len(rows_051) >= 2:
+        return "nhiều nguồn tn"
+    if len(rows_051) == 1 and len(rows_052) >= 1:
+        verdicts = []
+        for r in rows_052:
+            inc = utils.parse_amount(r[c_inc]) if c_inc is not None else 0.0
+            tax = utils.parse_amount(r[c_tax]) if c_tax is not None else 0.0
+            if inc < 2_000_000:
+                verdicts.append("05-2 dưới 2 triệu, không khấu trừ thuế")
+            elif tax + 1 >= 0.1 * inc:  # Thuế TNCN = 10% × TNCT (có dung sai làm tròn)
+                verdicts.append("OK")
+            else:  # Thuế TNCN < 10% × TNCT
+                verdicts.append("nhiều nguồn tn")
+        for p in _MS_PRIORITY:
+            if p in verdicts:
+                return p
+        return verdicts[0] if verdicts else ""
+    return ""  # chỉ 1 nguồn (1 bảng kê 05-1) — không gắn cờ
+
+
+def classify_multi_source(sheets: dict) -> dict:
+    """Phân loại 'ủy quyền quyết toán đúng/sai' từ file 'nhiều nguồn TN'.
+
+    ``sheets``: {tên_sheet -> DataFrame} (mỗi sheet là 1 năm). Nhóm theo
+    'MST cá nhân' trong từng sheet, áp quy tắc, rồi gộp qua các năm theo ưu tiên.
+    Trả về {MST cá nhân -> kết quả}.
+    """
+    per: dict = {}
+    for _name, df in sheets.items():
+        if df is None or df.empty:
+            continue
+        c_mst = _find_col(df, "MST cá nhân", "MST ca nhan", "Mã số thuế")
+        c_src = _find_col(df, "Nguồn dữ liệu")
+        c_inc = _find_col(df, "Thu nhập chịu thuế")
+        c_tax = _find_col(df, "Thuế TNCN", "số thuế TNCN đã khấu trừ")
+        if c_mst is None or c_src is None:
+            continue
+        groups: dict = {}
+        for _, row in df.iterrows():
+            mst = _digits(row[c_mst])
+            if not mst:
+                continue
+            src = "" if row[c_src] is None else str(row[c_src])
+            groups.setdefault(mst, []).append((src, row))
+        for mst, items in groups.items():
+            r051 = [r for s, r in items if "05-1" in s]
+            r052 = [r for s, r in items if "05-2" in s]
+            v = _ms_verdict(r051, r052, c_inc, c_tax)
+            if v:
+                per.setdefault(mst, []).append(v)
+    out: dict = {}
+    for mst, vs in per.items():
+        chosen = next((p for p in _MS_PRIORITY if p in vs), vs[0] if vs else "")
+        out[mst] = chosen
+    return out
+
+
+def apply_multi_source(pl1_df: pd.DataFrame, mst_ref, result_map: dict) -> pd.DataFrame:
+    """VLOOKUP kết quả 'nhiều nguồn TN' theo MST cá nhân vào cột mới của PL1."""
+    col = utils.resolve_column(pl1_df, mst_ref)
+    out = pl1_df.copy()
+    out["Ủy quyền QT (nhiều nguồn TN)"] = [result_map.get(_digits(v), "") for v in out[col]]
     return out
