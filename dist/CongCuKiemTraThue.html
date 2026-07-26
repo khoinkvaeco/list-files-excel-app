@@ -231,6 +231,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>→ Sheet Phụ lục 05-3 (NPT)</span><select id="npt_pl3_sheet"></select></label>
           <label class="fld"><span>→ Sheet Phụ lục 05-1</span><select id="npt_pl1_sheet"></select></label>
         </div>
+        <label class="fld"><span>→ Sheet Phụ lục 05-2 (tính lại thuế)</span><select id="npt_pl2_sheet"></select></label>
         <label class="fld"><span>→ Sheet dữ liệu NPT (TMS)</span><select id="npt_tms_sheet"></select></label>
         <p class="muted" style="margin-top:8px"><b>(Tùy chọn) Kiểm tra ủy quyền quyết toán</b> — đối chiếu PL1 với file <i>"nhiều nguồn TN"</i> để gắn cờ cá nhân có nhiều nguồn thu nhập.</p>
         <div class="row2">
@@ -265,6 +266,15 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <div class="row2">
             <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p1_hdr" min="1" value="1"></label>
             <label class="fld"><span>Cột MST NNT</span><input type="text" id="p1_mst" value="E"></label>
+          </div>
+          <h3>Phụ lục 05-2 (tính lại thuế TNCN + chênh lệch)</h3>
+          <div class="row2">
+            <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p2_hdr" min="1" value="1"></label>
+            <label class="fld"><span>Thu nhập chịu thuế</span><input type="text" id="p2_income" value="G"></label>
+          </div>
+          <div class="row2">
+            <label class="fld"><span>Cá nhân không cư trú</span><input type="text" id="p2_nonres" value="F"></label>
+            <label class="fld"><span>Thuế TNCN đã khấu trừ</span><input type="text" id="p2_withheld" value="K"></label>
           </div>
         </div></details>
         <button class="btn pri" id="btnNpt" disabled>▶️ Đối chiếu NPT</button>
@@ -809,6 +819,23 @@ function monthIndex(v){
 }
 const fmtMonth=i=>(i==null||i==='')?'':String(((i-1)%12)+1).padStart(2,'0')+'/'+Math.floor((i-1)/12);
 
+// Tách các kỳ đăng ký đóng gói bằng ';' (TMS thô) thành [[from,to],...]
+function parsePeriods(fromVal,toVal){
+  const split=v=>(v==null||v==='')?['']:String(v).split(/[;\n]/).map(s=>s.trim());
+  const fs=split(fromVal),ts=split(toVal),n=Math.max(fs.length,ts.length);
+  const froms=[],tos=[];
+  for(let i=0;i<n;i++){froms.push(i<fs.length?monthIndex(fs[i]):null);tos.push(i<ts.length?monthIndex(ts[i]):null);}
+  const periods=[];
+  for(let i=0;i<n;i++){
+    let f=froms[i],t=tos[i];
+    if(f==null&&t==null)continue;
+    if(t==null&&i+1<n&&froms[i+1]!=null)t=froms[i+1]-1; // kết thúc ngay trước kỳ kế
+    periods.push([f,t]);
+  }
+  return periods;
+}
+function monthsSpan(dFrom,dTo){if(dFrom==null)return 0;const end=dTo!=null?dTo:dFrom;return Math.max(0,end-dFrom+1);}
+
 function buildTmsNpt(mat,hdrRow,c){
   const header=mat[hdrRow-1]||[];
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
@@ -816,26 +843,29 @@ function buildTmsNpt(mat,hdrRow,c){
   for(const row of mat.slice(hdrRow)){
     const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
     if(!mstNpt&&!name)continue;
-    const rec={from:monthIndex(row[ix.tu_thang]),to:monthIndex(row[ix.den_thang]),mstNnt};
-    if(rec.from==null&&rec.to==null)continue;
-    if(mstNpt)(byMst[mstNpt]=byMst[mstNpt]||[]).push(rec);
-    if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push(rec);
+    const periods=parsePeriods(row[ix.tu_thang],row[ix.den_thang]);
+    if(!periods.length)continue;
+    for(const [f,t] of periods){
+      const rec={from:f,to:t,mstNnt};
+      if(mstNpt)(byMst[mstNpt]=byMst[mstNpt]||[]).push(rec);
+      if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push(rec);
+    }
   }
   return {byMst,byName};
 }
 function reconcilePL3(mat,hdrRow,c,lk){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
-  // thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
-  const out=[header.concat(['Nguồn khớp','TMS Từ tháng','TMS Đến tháng','Hợp lệ','Số NPT (TRUE/Tổng kê khai)','Lý do sai'])];
+  // thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Số tháng đủ ĐK NPT -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
+  const out=[header.concat(['Nguồn khớp','TMS Từ tháng','TMS Đến tháng','Hợp lệ','Số tháng đủ ĐK NPT','Số NPT (TRUE/Tổng kê khai)','Lý do sai'])];
   const rowNnt=[];  // MST NNT của từng dòng dữ liệu (song song với out[1..])
-  const ratioIx=header.length+4;  // vị trí cột tỉ lệ trong mỗi dòng
-  const counts={},totals={};let nTrue=0,nFalse=0;
+  const ratioIx=header.length+5;  // vị trí cột tỉ lệ trong mỗi dòng
+  const counts={},totals={},monthsByNnt={};let nTrue=0,nFalse=0;
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
     const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
     const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
-    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','']));rowNnt.push('');continue;}
+    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
     rowNnt.push(mstNnt);
     let recs=null,src='';
     if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
@@ -857,27 +887,55 @@ function reconcilePL3(mat,hdrRow,c,lk){
         }
       }
     }
-    out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE','',ok?'':[...new Set(why)].join('; ')]));
+    const nMonths=ok?monthsSpan(dFrom,dTo):0;
+    const mLabel=nMonths?String(nMonths).padStart(2,'0')+' tháng':'';
+    out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE',mLabel,'',ok?'':[...new Set(why)].join('; ')]));
     if(mstNnt)totals[mstNnt]=(totals[mstNnt]||0)+1;
-    if(ok){nTrue++;if(mstNnt)counts[mstNnt]=(counts[mstNnt]||0)+1;}else nFalse++;
+    if(ok){nTrue++;if(mstNnt){counts[mstNnt]=(counts[mstNnt]||0)+1;(monthsByNnt[mstNnt]=monthsByNnt[mstNnt]||[]).push(nMonths);}}else nFalse++;
   }
   // điền cột tỉ lệ TRUE/Tổng theo NNT (chuyển từ PL1 sang PL3)
   for(let i=1;i<out.length;i++){
     const m=rowNnt[i-1];
     out[i][ratioIx]=(m&&totals[m]!=null)?((counts[m]||0)+'/'+(totals[m]||0)):'';
   }
-  return {out,counts,totals,nTrue,nFalse};
+  return {out,counts,totals,monthsByNnt,nTrue,nFalse};
 }
-function applyPL1(mat,hdrRow,mstRef,counts,totals){
+function monthsNote(list){
+  const partial=(list||[]).filter(m=>m>0&&m<12);
+  if(!partial.length)return '';
+  const cnt={};partial.forEach(m=>cnt[m]=(cnt[m]||0)+1);
+  return Object.keys(cnt).map(Number).sort((a,b)=>a-b)
+    .map(m=>`có ${cnt[m]} mst npt đủ ${String(m).padStart(2,'0')} tháng`).join('; ');
+}
+function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix=resolveIndex(header,mstRef);
+  monthsByNnt=monthsByNnt||{};
   // Cột tỉ lệ 'Số NPT (TRUE/Tổng kê khai)' đã chuyển sang PL3.
-  const out=[header.concat(['Số NPT hợp lệ (TRUE)'])];
+  const out=[header.concat(['Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)'])];
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
     const d=digitsOf(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
-    out.push(base.concat([has?(counts[d]||0):'']));
+    out.push(base.concat([has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):'']));
+  }
+  return out;
+}
+// Phụ lục 05-2: tính lại thuế TNCN (10%/20%) + chênh lệch
+function isNonresident(v){const s=normName(v);return ['true','x','1','co','khong cu tru'].includes(s);}
+function processPL2(mat,hdrRow,c){
+  const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
+  const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
+  const out=[header.concat(['Tính thuế TNCN (PL2)','Chênh lệch'])];
+  for(const row of mat.slice(hdrRow)){
+    const base=header.map((_,j)=>row[j]==null?'':row[j]);
+    const rawInc=String(row[ix.income]==null?'':row[ix.income]).trim();
+    if(/^ct\d+/i.test(rawInc)||rawInc===''){out.push(base.concat(['','']));continue;}
+    const inc=parseAmount(row[ix.income]);
+    const rate=isNonresident(row[ix.nonresident])?0.20:0.10;
+    const tax=Math.round(inc*rate);
+    const withheld=Math.round(parseAmount(row[ix.withheld]));
+    out.push(base.concat([tax,tax-withheld]));
   }
   return out;
 }
@@ -1134,6 +1192,7 @@ $('f_npt_qt').onchange=async e=>{
   try{NF.qt=await readWB(f);
     fillSheetSel($('npt_pl3_sheet'),NF.qt.SheetNames,/05_3|PL3/i);
     fillSheetSel($('npt_pl1_sheet'),NF.qt.SheetNames,/05_1|PL1/i);
+    fillSheetSel($('npt_pl2_sheet'),NF.qt.SheetNames,/05_2|PL2/i);
     $('btnNpt').disabled=!(NF.qt&&NF.tms);
   }catch(err){alert('Lỗi đọc file: '+err.message);}
 };
@@ -1159,7 +1218,7 @@ $('btnNpt').onclick=()=>{
       const pl1Mat=sheetMatrix(NF.qt,$('npt_pl1_sheet').value);
       const lk=buildTmsNpt(tmsMat,+$('tm_hdr').value||1,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
       const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value},lk);
-      let pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts,rc.totals);
+      let pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts,rc.totals,rc.monthsByNnt);
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
         const sheetsMat=NF.ms.SheetNames.map(n=>({name:n,mat:sheetMatrix(NF.ms,n)}));
@@ -1167,6 +1226,14 @@ $('btnNpt').onclick=()=>{
         pl1=applyMultiSource(pl1,$('p1_mst').value,resMap);
       }
       NPTRES={'PL3 đối chiếu NPT':rc.out,'PL1 tổng hợp NPT':pl1};
+      // Phụ lục 05-2: tính lại thuế
+      try{
+        const pl2Sheet=$('npt_pl2_sheet').value;
+        if(pl2Sheet){
+          const pl2Mat=sheetMatrix(NF.qt,pl2Sheet);
+          NPTRES['PL2 tính thuế']=processPL2(pl2Mat,+$('p2_hdr').value||1,{income:$('p2_income').value,nonresident:$('p2_nonres').value,withheld:$('p2_withheld').value});
+        }
+      }catch(e){/* PL2 tùy chọn */}
       $('nptMsg').innerHTML='';$('nptResult').style.display='block';
       $('nptMetrics').innerHTML=
         `<div class="metric"><div class="k">NPT trên TMS</div><div class="v">${Object.keys(lk.byMst).length}</div></div>`+

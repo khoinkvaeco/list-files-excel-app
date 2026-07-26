@@ -67,6 +67,42 @@ def fmt_month(idx) -> str:
     return f"{m + 1:02d}/{y}"
 
 
+def parse_periods(from_val, to_val):
+    """Tách các kỳ đăng ký đóng gói bằng ';' (hoặc xuống dòng) thành danh sách
+    (từ_idx, đến_idx).
+
+    Ví dụ TMS thô: Từ tháng = '01/2016;01/2023', Đến tháng = '; 10/2023'
+      -> kỳ 1: 01/2016 -> (12/2022, ngay trước kỳ sau)
+         kỳ 2: 01/2023 -> 10/2023
+    'Đến tháng' trống ở kỳ cuối = còn hiệu lực (None)."""
+    def _split(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return [""]
+        return [s.strip() for s in re.split(r"[;\n]", str(v))]
+
+    fs, ts = _split(from_val), _split(to_val)
+    n = max(len(fs), len(ts))
+    froms = [month_index(fs[i]) if i < len(fs) else None for i in range(n)]
+    tos = [month_index(ts[i]) if i < len(ts) else None for i in range(n)]
+    periods = []
+    for i in range(n):
+        f, t = froms[i], tos[i]
+        if f is None and t is None:
+            continue
+        if t is None and i + 1 < n and froms[i + 1] is not None:
+            t = froms[i + 1] - 1  # kết thúc ngay trước kỳ đăng ký kế tiếp
+        periods.append((f, t))
+    return periods
+
+
+def _months_span(d_from, d_to) -> int:
+    """Số tháng đủ điều kiện (bao gồm cả tháng đầu và cuối)."""
+    if d_from is None:
+        return 0
+    end = d_to if d_to is not None else d_from
+    return max(0, end - d_from + 1)
+
+
 def _digits(v) -> str:
     return re.sub(r"\D", "", "" if v is None else str(v))
 
@@ -92,17 +128,16 @@ def build_tms_npt(tms_df: pd.DataFrame, cfg: dict):
         name = _norm_name(row[c["ten_npt"]])
         if not mst_npt and not name:
             continue
-        rec = {
-            "from": month_index(row[c["tu_thang"]]),
-            "to": month_index(row[c["den_thang"]]),
-            "mst_nnt": mst_nnt,
-        }
-        if rec["from"] is None and rec["to"] is None:
+        # TMS thô có thể gói nhiều kỳ đăng ký bằng ';' -> tách thành nhiều rec
+        periods = parse_periods(row[c["tu_thang"]], row[c["den_thang"]])
+        if not periods:
             continue  # dòng tiêu đề phụ / trống
-        if mst_npt:
-            by_mst.setdefault(mst_npt, []).append(rec)
-        if name and mst_nnt:
-            by_name.setdefault((mst_nnt, name), []).append(rec)
+        for p_from, p_to in periods:
+            rec = {"from": p_from, "to": p_to, "mst_nnt": mst_nnt}
+            if mst_npt:
+                by_mst.setdefault(mst_npt, []).append(rec)
+            if name and mst_nnt:
+                by_name.setdefault((mst_nnt, name), []).append(rec)
     return by_mst, by_name
 
 
@@ -113,14 +148,16 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
     """Đối chiếu từng dòng PL3 với TMS. ``cfg``: {mst_nnt, ten_npt, mst_npt,
     tu_thang, den_thang}.
 
-    Trả về (DataFrame PL3 gốc + 4 cột mới, dict {MST NNT -> số NPT TRUE}).
+    Trả về (DataFrame PL3 + cột mới, true_counts, total_counts, months_by_nnt).
     """
     c = {k: utils.resolve_column(pl3_df, v) for k, v in cfg.items()}
 
     tms_from, tms_to, matched_by, valid, reasons = [], [], [], [], []
+    months_col: list = []  # số tháng đủ ĐK của từng dòng
     row_nnt: list = []  # MST NNT của từng dòng (để dựng cột tỉ lệ TRUE/Tổng)
     true_counts: dict = {}
     total_counts: dict = {}
+    months_by_nnt: dict = {}  # MST NNT -> [số tháng của các NPT hợp lệ]
 
     for _, row in pl3_df.iterrows():
         mst_npt = _digits(row[c["mst_npt"]])
@@ -135,6 +172,7 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
         if is_ct_row or (not mst_nnt and not mst_npt and not name):
             tms_from.append(""); tms_to.append(""); matched_by.append("")
             valid.append(""); reasons.append(""); row_nnt.append("")
+            months_col.append("")
             continue
         row_nnt.append(mst_nnt)
 
@@ -177,10 +215,15 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
             valid.append("TRUE" if ok else "FALSE")
             reasons.append("" if ok else "; ".join(dict.fromkeys(why)))
 
+        # số tháng đủ ĐK: chỉ tính cho dòng hợp lệ (theo kỳ kê khai ct21/ct22)
+        n_months = _months_span(d_from, d_to) if valid[-1] == "TRUE" else 0
+        months_col.append(f"{n_months:02d} tháng" if n_months else "")
+
         if mst_nnt:
             total_counts[mst_nnt] = total_counts.get(mst_nnt, 0) + 1
             if valid[-1] == "TRUE":
                 true_counts[mst_nnt] = true_counts.get(mst_nnt, 0) + 1
+                months_by_nnt.setdefault(mst_nnt, []).append(n_months)
 
     # cột tỉ lệ NPT hợp lệ theo từng NNT (TRUE/Tổng kê khai) — chuyển từ PL1 sang PL3
     ratio_col = []
@@ -194,35 +237,90 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
 
     out = pl3_df.copy()
     # thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ
-    #                 -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
+    #                 -> Số tháng đủ ĐK NPT -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
     out["Nguồn khớp"] = matched_by
     out["TMS Từ tháng"] = tms_from
     out["TMS Đến tháng"] = tms_to
     out["Hợp lệ"] = valid
+    out["Số tháng đủ ĐK NPT"] = months_col
     out["Số NPT (TRUE/Tổng kê khai)"] = ratio_col
     out["Lý do sai"] = reasons
-    return out, true_counts, total_counts
+    return out, true_counts, total_counts, months_by_nnt
 
 
 # ---------------------------------------------------------------------------
 # Bước 3: điền tổng NPT TRUE vào cột cuối Phụ lục 1
 # ---------------------------------------------------------------------------
+def _months_note(month_list) -> str:
+    """Ghi chú số tháng đủ ĐK cho các NPT chưa đủ 12 tháng (đủ 12 -> để trống)."""
+    from collections import Counter
+    partial = [m for m in (month_list or []) if 0 < m < 12]
+    if not partial:
+        return ""
+    return "; ".join(
+        f"có {cnt} mst npt đủ {m:02d} tháng" for m, cnt in sorted(Counter(partial).items())
+    )
+
+
 def apply_pl1(pl1_df: pd.DataFrame, mst_ref, true_counts: dict,
-              total_counts: dict | None = None) -> pd.DataFrame:
-    """Thêm cột cuối vào Phụ lục 1 theo MST NNT: 'Số NPT hợp lệ (TRUE)'.
+              total_counts: dict | None = None,
+              months_by_nnt: dict | None = None) -> pd.DataFrame:
+    """Thêm cột cuối vào Phụ lục 1 theo MST NNT:
+    - 'Số NPT hợp lệ (TRUE)'
+    - 'Số tháng đủ ĐK NPT (nếu <12)' — ghi chú các NPT chưa đủ 12 tháng.
 
     (Cột tỉ lệ 'Số NPT (TRUE/Tổng kê khai)' đã chuyển sang hiển thị ở PL3.)"""
     col = utils.resolve_column(pl1_df, mst_ref)
     out = pl1_df.copy()
     total_counts = total_counts or {}
-    trues = []
+    months_by_nnt = months_by_nnt or {}
+    trues, notes = [], []
     for v in out[col]:
         d = _digits(v)
         if not d or (d not in true_counts and d not in total_counts):
-            trues.append("")
+            trues.append(""); notes.append("")
             continue
         trues.append(true_counts.get(d, 0))
+        notes.append(_months_note(months_by_nnt.get(d)))
     out["Số NPT hợp lệ (TRUE)"] = trues
+    out["Số tháng đủ ĐK NPT (nếu <12)"] = notes
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Phụ lục 05-2: tính lại thuế TNCN và chênh lệch
+# ---------------------------------------------------------------------------
+def _is_nonresident(v) -> bool:
+    """'Cá nhân không cư trú' = true/x/1 -> không cư trú (thuế suất 20%)."""
+    s = _norm_name(v)
+    return s in ("true", "x", "1", "co", "có", "khong cu tru")
+
+
+def process_pl2(pl2_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """Thêm cột 'Tính thuế TNCN (PL2)' và 'Chênh lệch' vào Phụ lục 05-2.
+
+    ``cfg``: {income, nonresident, withheld} (tham chiếu cột).
+    - Cư trú (Cá nhân không cư trú = false) -> thuế = Thu nhập chịu thuế × 10%.
+    - Không cư trú (true) -> thuế = Thu nhập chịu thuế × 20%.
+    - Chênh lệch = Tính thuế TNCN − Số thuế TNCN đã khấu trừ."""
+    c = {k: utils.resolve_column(pl2_df, v) for k, v in cfg.items()}
+    out = pl2_df.copy()
+    calc, diff = [], []
+    for _, row in pl2_df.iterrows():
+        raw_inc = row[c["income"]]
+        raw_str = "" if raw_inc is None else str(raw_inc).strip()
+        # bỏ qua dòng mã kỹ thuật (ct11...) và dòng trống
+        if re.fullmatch(r"ct\d+(_\w+)?", raw_str, flags=re.I) or raw_str == "":
+            calc.append(""); diff.append("")
+            continue
+        inc = utils.parse_amount(raw_inc)
+        rate = 0.20 if _is_nonresident(row[c["nonresident"]]) else 0.10
+        tax = round(inc * rate)
+        withheld = round(utils.parse_amount(row[c["withheld"]]))
+        calc.append(tax)
+        diff.append(tax - withheld)
+    out["Tính thuế TNCN (PL2)"] = calc
+    out["Chênh lệch"] = diff
     return out
 
 

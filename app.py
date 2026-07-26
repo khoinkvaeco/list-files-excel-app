@@ -594,14 +594,16 @@ def render_npt():
         f_qt = st.file_uploader(
             "📄 File quyết toán TNCN (chứa Phụ lục 05-1 và 05-3)", type=["xlsx", "xls"]
         )
-        pl3_sheet = pl1_sheet = None
+        pl3_sheet = pl1_sheet = pl2_sheet = None
         if f_qt is not None:
             try:
                 shs = utils.list_sheets(f_qt)
                 _d3 = next((i for i, s in enumerate(shs) if "05_3" in s or "PL3" in s.upper()), 0)
                 _d1 = next((i for i, s in enumerate(shs) if "05_1" in s or "PL1" in s.upper()), 0)
+                _d2 = next((i for i, s in enumerate(shs) if "05_2" in s or "PL2" in s.upper()), 0)
                 pl3_sheet = st.selectbox("→ Sheet Phụ lục 05-3 (NPT)", shs, index=_d3)
                 pl1_sheet = st.selectbox("→ Sheet Phụ lục 05-1 (người lao động)", shs, index=_d1)
+                pl2_sheet = st.selectbox("→ Sheet Phụ lục 05-2 (tính lại thuế)", shs, index=_d2)
             except Exception:  # noqa: BLE001
                 pass
     with c2:
@@ -650,6 +652,14 @@ def render_npt():
         r3 = st.columns(6)
         pl1_hdr = r3[0].number_input("Dòng tiêu đề PL1", 1, 20, 1)
         pl1_mst = r3[1].text_input("Cột MST NNT (PL1)", "E", key="n_p1")
+        st.markdown("**Phụ lục 05-2** (tính lại thuế TNCN + chênh lệch)")
+        r4 = st.columns(6)
+        pl2_hdr = r4[0].number_input("Dòng tiêu đề PL2", 1, 20, 1)
+        pl2c = {
+            "income": r4[1].text_input("Thu nhập chịu thuế", "G", key="n_p2a"),
+            "nonresident": r4[2].text_input("Cá nhân không cư trú", "F", key="n_p2b"),
+            "withheld": r4[3].text_input("Thuế TNCN đã khấu trừ", "K", key="n_p2c"),
+        }
 
     if st.button("▶️ Đối chiếu NPT", type="primary", disabled=not (f_qt and f_tms)):
         try:
@@ -657,8 +667,8 @@ def render_npt():
             pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
             pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
             by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
-            pl3_out, counts, totals = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
-            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals)
+            pl3_out, counts, totals, months = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
+            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals, months)
             if f_ms is not None:
                 ms_sheets = {
                     sn: utils.read_excel(f_ms, ms_hdr, sheet_name=sn)
@@ -666,14 +676,20 @@ def render_npt():
                 }
                 ms_map = npt.classify_multi_source(ms_sheets)
                 pl1_out = npt.apply_multi_source(pl1_out, pl1_mst, ms_map)
+            pl2_out = None
+            try:
+                pl2_df = utils.read_excel(f_qt, pl2_hdr, sheet_name=pl2_sheet or 0)
+                pl2_out = npt.process_pl2(pl2_df, pl2c)
+            except Exception:  # noqa: BLE001
+                pl2_out = None
         except Exception as e:  # noqa: BLE001
             st.error(f"Lỗi: {e}")
             st.exception(e)
             st.stop()
-        st.session_state["npt_result"] = (pl3_out, pl1_out, counts, len(by_mst))
+        st.session_state["npt_result"] = (pl3_out, pl1_out, pl2_out, counts, len(by_mst))
 
     if "npt_result" in st.session_state:
-        pl3_out, pl1_out, counts, n_tms = st.session_state["npt_result"]
+        pl3_out, pl1_out, pl2_out, counts, n_tms = st.session_state["npt_result"]
         vc = pl3_out["Hợp lệ"].value_counts().to_dict()
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("NPT trên TMS", n_tms)
@@ -681,10 +697,10 @@ def render_npt():
         m3.metric("NPT không hợp lệ (FALSE)", vc.get("FALSE", 0))
         m4.metric("NNT có NPT TRUE", len(counts))
 
-        excel_bytes = utils.to_excel_bytes({
-            "PL3 đối chiếu NPT": pl3_out,
-            "PL1 tổng hợp NPT": pl1_out,
-        })
+        sheets_out = {"PL3 đối chiếu NPT": pl3_out, "PL1 tổng hợp NPT": pl1_out}
+        if pl2_out is not None:
+            sheets_out["PL2 tính thuế"] = pl2_out
+        excel_bytes = utils.to_excel_bytes(sheets_out)
         st.download_button(
             "⬇️ Tải kết quả đối chiếu NPT",
             data=excel_bytes,
@@ -692,13 +708,16 @@ def render_npt():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
         )
-        st.markdown("**Phụ lục 3 — đối chiếu** (TMS Từ/Đến tháng, Nguồn khớp, Hợp lệ ở các cột cuối)")
+        st.markdown("**Phụ lục 3 — đối chiếu** (Nguồn khớp, TMS Từ/Đến, Hợp lệ, Số tháng đủ ĐK ở các cột cuối)")
         show_df(pl3_out)
         st.markdown(
-            "**Phụ lục 1 — cột cuối: Số NPT hợp lệ (TRUE)** "
-            "(và *Ủy quyền QT (nhiều nguồn TN)* nếu có nạp file nhiều nguồn TN)"
+            "**Phụ lục 1** — Số NPT hợp lệ (TRUE), Số tháng đủ ĐK (nếu <12), "
+            "Ủy quyền QT (nhiều nguồn TN)"
         )
         show_df(pl1_out)
+        if pl2_out is not None:
+            st.markdown("**Phụ lục 2** — Tính thuế TNCN (10%/20%) và Chênh lệch")
+            show_df(pl2_out)
 
 
 # ---------------------------------------------------------------------------
