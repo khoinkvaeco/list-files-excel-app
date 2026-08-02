@@ -214,8 +214,13 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name, hokd_map=Non
         mst_npt = _digits(row[c["mst_npt"]])
         mst_nnt = _digits(row[c["mst_nnt"]])
         name = _norm_name(row[c["ten_npt"]])
+        # kỳ giảm trừ kê khai: ưu tiên ct21/ct22, nếu trống thì lấy ct15/ct16
         d_from = month_index(row[c["tu_thang"]])
+        if d_from is None and c15 is not None:
+            d_from = month_index(row[c15])
         d_to = month_index(row[c["den_thang"]])
+        if d_to is None and c16 is not None:
+            d_to = month_index(row[c16])
 
         # bỏ qua dòng không phải dữ liệu (dòng mã kỹ thuật ct07/ct08..., dòng trống)
         raw_mst_nnt = "" if row[c["mst_nnt"]] is None else str(row[c["mst_nnt"]]).strip()

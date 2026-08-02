@@ -916,7 +916,11 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
     let recs=null,src='';
     if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
     else if(name&&lk.byName[mstNnt+'|'+name]){recs=lk.byName[mstNnt+'|'+name];src='Tên NPT';}
-    const dFrom=monthIndex(row[ix.tu_thang]),dTo=monthIndex(row[ix.den_thang]);
+    // kỳ giảm trừ kê khai: ưu tiên ct21/ct22, nếu trống thì lấy ct15/ct16
+    let dFrom=monthIndex(row[ix.tu_thang]);
+    if(dFrom==null&&c.tu_ngay)dFrom=monthIndex(row[ix.tu_ngay]);
+    let dTo=monthIndex(row[ix.den_thang]);
+    if(dTo==null&&c.den_ngay)dTo=monthIndex(row[ix.den_ngay]);
     let ok=false,tf='',tt='',why=[];
     if(!recs){src='Không tìm thấy';why.push('Không có trên TMS');}
     else{
