@@ -239,6 +239,16 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             <input type="file" id="f_npt_ms" accept=".xlsx,.xls"></label>
           <label class="fld"><span>Dòng tiêu đề file nhiều nguồn TN</span><input type="number" id="ms_hdr" min="1" value="1"></label>
         </div>
+        <p class="muted" style="margin-top:8px"><b>(Tùy chọn) NPT là hộ cá nhân kinh doanh</b> — tra MST NPT (PL3) vào danh bạ, so 'Ngày đóng trạng thái tổ chức' (BB) với kỳ giảm trừ.</p>
+        <div class="row2">
+          <label class="fld"><span>🏪 File "MST NPT là hộ cá nhân kinh doanh"</span>
+            <input type="file" id="f_npt_hokd" accept=".xlsx,.xls"></label>
+          <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="hokd_hdr" min="1" value="2"></label>
+        </div>
+        <div class="row2">
+          <label class="fld"><span>Cột MST NPT (hộ CNKD)</span><input type="text" id="hokd_mst" value="D"></label>
+          <label class="fld"><span>Cột Ngày đóng TT tổ chức</span><input type="text" id="hokd_bb" value="BB"></label>
+        </div>
         <details><summary>⚙️ Cấu hình cột</summary><div class="body">
           <h3>Phụ lục 05-3</h3>
           <div class="row2">
@@ -248,8 +258,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           </div>
           <div class="row2">
             <label class="fld"><span>MST NPT</span><input type="text" id="p3_mstnpt" value="F"></label>
-            <label class="fld"><span>Từ tháng</span><input type="text" id="p3_tu" value="V"></label>
-            <label class="fld"><span>Đến tháng</span><input type="text" id="p3_den" value="W"></label>
+            <label class="fld"><span>Từ tháng (ct21)</span><input type="text" id="p3_tu" value="V"></label>
+            <label class="fld"><span>Đến tháng (ct22)</span><input type="text" id="p3_den" value="W"></label>
+          </div>
+          <div class="row2">
+            <label class="fld"><span>Bắt đầu giảm trừ (ct15)</span><input type="text" id="p3_tungay" value="L"></label>
+            <label class="fld"><span>Kết thúc giảm trừ (ct16)</span><input type="text" id="p3_dengay" value="M"></label>
           </div>
           <h3>File TMS NPT</h3>
           <div class="row2">
@@ -836,6 +850,27 @@ function parsePeriods(fromVal,toVal){
 }
 function monthsSpan(dFrom,dTo){if(dFrom==null)return 0;const end=dTo!=null?dTo:dFrom;return Math.max(0,end-dFrom+1);}
 
+// cùng 1 MST NPT: 'Đến tháng' trống = liên tục đến ngay trước 'Từ tháng' kỳ kế
+function fillOpenPeriods(recs){
+  recs.sort((a,b)=>(a.from==null?1:0)-(b.from==null?1:0)||(a.from||0)-(b.from||0));
+  for(let i=0;i<recs.length;i++){
+    if(recs[i].to==null){
+      for(let j=i+1;j<recs.length;j++){
+        const nf=recs[j].from;
+        if(nf!=null&&(recs[i].from==null||nf>recs[i].from)){recs[i].to=nf-1;break;}
+      }
+    }
+  }
+}
+function periodDateKey(raw,monthIdx,isStart){
+  const d=parseDate(raw);
+  if(d)return d.y*10000+d.m*100+d.d;
+  if(monthIdx==null)return null;
+  const y=Math.floor((monthIdx-1)/12), m=((monthIdx-1)%12)+1;
+  const day=isStart?1:new Date(Date.UTC(y,m,0)).getUTCDate();
+  return y*10000+m*100+day;
+}
+
 function buildTmsNpt(mat,hdrRow,c){
   const header=mat[hdrRow-1]||[];
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
@@ -851,9 +886,20 @@ function buildTmsNpt(mat,hdrRow,c){
       if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push(rec);
     }
   }
+  for(const k in byMst)fillOpenPeriods(byMst[k]);
+  for(const k in byName)fillOpenPeriods(byName[k]);
   return {byMst,byName};
 }
-function reconcilePL3(mat,hdrRow,c,lk){
+// File 'MST NPT là hộ cá nhân kinh doanh' -> {MST NPT -> giá trị cột BB}
+function buildHokd(mat,hdrRow,c){
+  const header=mat[hdrRow-1]||[];
+  const im=resolveIndex(header,c.mst), ib=resolveIndex(header,c.bb);
+  const out={};
+  for(const row of mat.slice(hdrRow)){const d=digitsOf(row[im]);if(d)out[d]=row[ib];}
+  return out;
+}
+function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
+  hokdMap=hokdMap||{};
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
   // thứ tự cột mới: Nguồn khớp -> TMS Từ/Đến tháng -> Hợp lệ -> Số tháng đủ ĐK NPT -> Số NPT (TRUE/Tổng kê khai) -> Lý do sai
@@ -887,9 +933,21 @@ function reconcilePL3(mat,hdrRow,c,lk){
         }
       }
     }
+    let reason=ok?'':[...new Set(why)].join('; ');
+    // Ghi đè theo file 'MST NPT là hộ cá nhân kinh doanh'
+    if(mstNpt&&Object.prototype.hasOwnProperty.call(hokdMap,mstNpt)){
+      const bb=parseDate(hokdMap[mstNpt]);
+      const endK=periodDateKey(c.den_ngay?row[ix.den_ngay]:null, dTo!=null?dTo:dFrom, false);
+      if(!bb){ok=false;reason='NPT là hộ CNKD';}
+      else{
+        const bbK=bb.y*10000+bb.m*100+bb.d;
+        if(endK!=null&&endK<bbK){ok=false;reason='NPT là hộ CNKD';}
+        else{ok=true;reason='đủ thời gian npt hộ CNKD từ ngày '+String(bb.d).padStart(2,'0')+'/'+String(bb.m).padStart(2,'0')+'/'+bb.y;}
+      }
+    }
     const nMonths=ok?monthsSpan(dFrom,dTo):0;
     const mLabel=nMonths?String(nMonths).padStart(2,'0')+' tháng':'';
-    out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE',mLabel,'',ok?'':[...new Set(why)].join('; ')]));
+    out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE',mLabel,'',reason]));
     if(mstNnt)totals[mstNnt]=(totals[mstNnt]||0)+1;
     if(ok){nTrue++;if(mstNnt){counts[mstNnt]=(counts[mstNnt]||0)+1;(monthsByNnt[mstNnt]=monthsByNnt[mstNnt]||[]).push(nMonths);}}else nFalse++;
   }
@@ -1182,7 +1240,7 @@ document.addEventListener('click',e=>{
 });
 
 /* ---- NPT tab ---- */
-const NF={qt:null,tms:null,ms:null};
+const NF={qt:null,tms:null,ms:null,hokd:null};
 function fillSheetSel(sel,names,prefer){
   sel.innerHTML='';names.forEach(n=>{const o=document.createElement('option');o.value=o.textContent=n;sel.appendChild(o);});
   let idx=names.findIndex(n=>prefer.test(n));if(idx<0)idx=0;sel.selectedIndex=idx;
@@ -1207,6 +1265,10 @@ $('f_npt_ms').onchange=async e=>{
   const f=e.target.files[0];if(!f){NF.ms=null;return;}
   try{NF.ms=await readWB(f);}catch(err){alert('Lỗi đọc file: '+err.message);NF.ms=null;}
 };
+$('f_npt_hokd').onchange=async e=>{
+  const f=e.target.files[0];if(!f){NF.hokd=null;return;}
+  try{NF.hokd=await readWB(f);}catch(err){alert('Lỗi đọc file: '+err.message);NF.hokd=null;}
+};
 let NPTRES=null;
 $('btnNpt').onclick=()=>{
   $('nptMsg').innerHTML='<div class="muted">Đang xử lý…</div>';
@@ -1217,7 +1279,12 @@ $('btnNpt').onclick=()=>{
       const pl3Mat=sheetMatrix(NF.qt,$('npt_pl3_sheet').value);
       const pl1Mat=sheetMatrix(NF.qt,$('npt_pl1_sheet').value);
       const lk=buildTmsNpt(tmsMat,+$('tm_hdr').value||1,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
-      const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value},lk);
+      let hokdMap={};
+      if(NF.hokd){
+        const hkMat=sheetMatrix(NF.hokd,NF.hokd.SheetNames[0]);
+        hokdMap=buildHokd(hkMat,+$('hokd_hdr').value||1,{mst:$('hokd_mst').value,bb:$('hokd_bb').value});
+      }
+      const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap);
       let pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts,rc.totals,rc.monthsByNnt);
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;

@@ -627,6 +627,19 @@ def render_npt():
     )
     ms_hdr = st.number_input("Dòng tiêu đề file nhiều nguồn TN", 1, 20, 1, key="npt_ms_hdr")
 
+    st.markdown(
+        "**(Tùy chọn) NPT là hộ cá nhân kinh doanh** — tra MST NPT (PL3) vào file "
+        "danh bạ, so 'Ngày đóng trạng thái tổ chức' (cột BB) với kỳ giảm trừ."
+    )
+    f_hokd = st.file_uploader(
+        "🏪 File 'MST NPT là hộ cá nhân kinh doanh'", type=["xlsx", "xls"],
+        key="npt_hokd",
+    )
+    rh = st.columns(3)
+    hokd_hdr = rh[0].number_input("Dòng tiêu đề file hộ CNKD", 1, 20, 2, key="npt_hokd_hdr")
+    hokd_mst = rh[1].text_input("Cột MST NPT (hộ CNKD)", "D", key="n_hka")
+    hokd_bb = rh[2].text_input("Cột Ngày đóng TT tổ chức", "BB", key="n_hkb")
+
     with st.expander("⚙️ Cấu hình cột (chữ cái Excel hoặc tên tiêu đề)", expanded=False):
         st.markdown("**Phụ lục 05-3** (dòng tiêu đề + các cột)")
         r1 = st.columns(6)
@@ -635,9 +648,12 @@ def render_npt():
             "mst_nnt": r1[1].text_input("MST NNT", "C", key="n_p3a"),
             "ten_npt": r1[2].text_input("Tên NPT", "D", key="n_p3b"),
             "mst_npt": r1[3].text_input("MST NPT", "F", key="n_p3c"),
-            "tu_thang": r1[4].text_input("Từ tháng", "V", key="n_p3d"),
-            "den_thang": r1[5].text_input("Đến tháng", "W", key="n_p3e"),
+            "tu_thang": r1[4].text_input("Từ tháng (ct21)", "V", key="n_p3d"),
+            "den_thang": r1[5].text_input("Đến tháng (ct22)", "W", key="n_p3e"),
         }
+        r1b = st.columns(6)
+        pl3["tu_ngay"] = r1b[0].text_input("Bắt đầu giảm trừ (ct15)", "L", key="n_p3f")
+        pl3["den_ngay"] = r1b[1].text_input("Kết thúc giảm trừ (ct16)", "M", key="n_p3g")
         st.markdown("**File TMS NPT**")
         r2 = st.columns(6)
         tms_hdr = r2[0].number_input("Dòng tiêu đề TMS", 1, 20, 1)
@@ -667,7 +683,12 @@ def render_npt():
             pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
             pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
             by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
-            pl3_out, counts, totals, months = npt.reconcile_pl3(pl3_df, pl3, by_mst, by_name)
+            hokd_map = {}
+            if f_hokd is not None:
+                hk_df = utils.read_excel(f_hokd, hokd_hdr, sheet_name=0)
+                hokd_map = npt.build_hokd(hk_df, {"mst": hokd_mst, "bb": hokd_bb})
+            pl3_out, counts, totals, months = npt.reconcile_pl3(
+                pl3_df, pl3, by_mst, by_name, hokd_map)
             pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals, months)
             if f_ms is not None:
                 ms_sheets = {

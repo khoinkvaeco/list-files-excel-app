@@ -103,6 +103,36 @@ def _months_span(d_from, d_to) -> int:
     return max(0, end - d_from + 1)
 
 
+def _period_date(raw, month_idx, is_start):
+    """Ngày mốc của kỳ giảm trừ: ưu tiên ct15/ct16 (ngày); nếu trống thì suy ra
+    từ ct21/ct22 (tháng) — đầu tháng nếu is_start, cuối tháng nếu ngược lại."""
+    import calendar
+    d = utils.parse_date(raw)
+    if d is not None and not pd.isna(d):
+        return pd.Timestamp(d)
+    if month_idx is None:
+        return None
+    y, m = divmod(int(month_idx) - 1, 12)
+    m += 1
+    day = 1 if is_start else calendar.monthrange(y, m)[1]
+    return pd.Timestamp(year=y, month=m, day=day)
+
+
+def build_hokd(hk_df: pd.DataFrame, cfg: dict) -> dict:
+    """File 'MST NPT là hộ cá nhân kinh doanh' -> {MST NPT -> giá trị cột BB}.
+
+    ``cfg``: {mst, bb} (tham chiếu cột). Có mặt khóa = MST thuộc hộ CNKD; giá trị
+    là 'Ngày đóng trạng thái tổ chức' (có thể trống)."""
+    c = {k: utils.resolve_column(hk_df, v) for k, v in cfg.items()}
+    out: dict = {}
+    for _, row in hk_df.iterrows():
+        mst = _digits(row[c["mst"]])
+        if not mst:
+            continue
+        out[mst] = row[c["bb"]]
+    return out
+
+
 def _digits(v) -> str:
     return re.sub(r"\D", "", "" if v is None else str(v))
 
@@ -138,19 +168,40 @@ def build_tms_npt(tms_df: pd.DataFrame, cfg: dict):
                 by_mst.setdefault(mst_npt, []).append(rec)
             if name and mst_nnt:
                 by_name.setdefault((mst_nnt, name), []).append(rec)
+    # cùng 1 MST NPT: 'Đến tháng' trống = liên tục đến 'Từ tháng' của dòng kế
+    for recs in by_mst.values():
+        _fill_open_periods(recs)
+    for recs in by_name.values():
+        _fill_open_periods(recs)
     return by_mst, by_name
+
+
+def _fill_open_periods(recs: list) -> None:
+    """Sắp xếp theo 'từ tháng'; kỳ có 'đến tháng' trống được nối liên tục đến
+    ngay trước 'từ tháng' của kỳ kế tiếp (kỳ cuối để trống = còn hiệu lực)."""
+    recs.sort(key=lambda r: (r["from"] is None, r["from"] or 0))
+    for i, r in enumerate(recs):
+        if r["to"] is None:
+            for j in range(i + 1, len(recs)):
+                nf = recs[j]["from"]
+                if nf is not None and (r["from"] is None or nf > r["from"]):
+                    r["to"] = nf - 1
+                    break
 
 
 # ---------------------------------------------------------------------------
 # Bước 1 + 2: đối chiếu Phụ lục 3
 # ---------------------------------------------------------------------------
-def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
+def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name, hokd_map=None):
     """Đối chiếu từng dòng PL3 với TMS. ``cfg``: {mst_nnt, ten_npt, mst_npt,
     tu_thang, den_thang}.
 
     Trả về (DataFrame PL3 + cột mới, true_counts, total_counts, months_by_nnt).
     """
     c = {k: utils.resolve_column(pl3_df, v) for k, v in cfg.items()}
+    hokd_map = hokd_map or {}
+    c15 = c.get("tu_ngay")   # ct15 = Thời điểm bắt đầu tính giảm trừ (nếu có)
+    c16 = c.get("den_ngay")  # ct16 = Thời điểm kết thúc tính giảm trừ (nếu có)
 
     tms_from, tms_to, matched_by, valid, reasons = [], [], [], [], []
     months_col: list = []  # số tháng đủ ĐK của từng dòng
@@ -184,8 +235,9 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
 
         if not recs:
             tms_from.append(""); tms_to.append("")
-            matched_by.append("Không tìm thấy"); valid.append("FALSE")
-            reasons.append("Không có trên TMS")
+            matched_by.append("Không tìm thấy")
+            ok = False
+            reason = "Không có trên TMS"
         else:
             # hiển thị kỳ TMS (bản ghi đầu; nhiều kỳ thì nối)
             tms_from.append("; ".join(fmt_month(r["from"]) for r in recs))
@@ -212,8 +264,22 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name):
                             why.append(f"Kê khai đến {fmt_month(d_end)} sau kỳ TMS ({fmt_month(hi)})")
                     if not why:
                         why.append("Kỳ kê khai ngoài kỳ đăng ký TMS")
-            valid.append("TRUE" if ok else "FALSE")
-            reasons.append("" if ok else "; ".join(dict.fromkeys(why)))
+            reason = "" if ok else "; ".join(dict.fromkeys(why))
+
+        # Ghi đè theo file "MST NPT là hộ cá nhân kinh doanh" (nếu MST NPT có trong file)
+        if mst_npt and mst_npt in hokd_map:
+            bb = utils.parse_date(hokd_map[mst_npt])
+            end_d = _period_date(row[c16] if c16 else None, d_to if d_to is not None else d_from, is_start=False)
+            if bb is None or pd.isna(bb):
+                ok, reason = False, "NPT là hộ CNKD"
+            elif end_d is not None and end_d < bb:
+                ok, reason = False, "NPT là hộ CNKD"
+            else:
+                ok = True
+                reason = "đủ thời gian npt hộ CNKD từ ngày " + bb.strftime("%d/%m/%Y")
+
+        valid.append("TRUE" if ok else "FALSE")
+        reasons.append(reason)
 
         # số tháng đủ ĐK: chỉ tính cho dòng hợp lệ (theo kỳ kê khai ct21/ct22)
         n_months = _months_span(d_from, d_to) if valid[-1] == "TRUE" else 0
