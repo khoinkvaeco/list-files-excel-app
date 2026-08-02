@@ -821,6 +821,8 @@ function mergeUnits(units,{blank,headerRows,source,dedupe}){
 
 /* ================= KIỂM TRA NGƯỜI PHỤ THUỘC (NPT) ================= */
 const digitsOf=v=>String(v==null?'':v).replace(/\D/g,'');
+// Khóa so khớp MST — bỏ số 0 đầu để khớp cả khi MST lưu dạng số (mất số 0) lẫn chữ
+const mstKey=v=>{const d=digitsOf(v);return d?d.replace(/^0+/,''):d;};
 function normName(s){return stripAccents(String(s==null?'':s)).toLowerCase().replace(/\s+/g,' ').trim();}
 function monthIndex(v){
   if(v==null)return null;
@@ -876,7 +878,7 @@ function buildTmsNpt(mat,hdrRow,c){
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
   const byMst={},byName={};
   for(const row of mat.slice(hdrRow)){
-    const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
+    const mstNpt=mstKey(row[ix.mst_npt]),mstNnt=mstKey(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
     if(!mstNpt&&!name)continue;
     const periods=parsePeriods(row[ix.tu_thang],row[ix.den_thang]);
     if(!periods.length)continue;
@@ -895,7 +897,7 @@ function buildHokd(mat,hdrRow,c){
   const header=mat[hdrRow-1]||[];
   const im=resolveIndex(header,c.mst), ib=resolveIndex(header,c.bb);
   const out={};
-  for(const row of mat.slice(hdrRow)){const d=digitsOf(row[im]);if(d)out[d]=row[ib];}
+  for(const row of mat.slice(hdrRow)){const d=mstKey(row[im]);if(d)out[d]=row[ib];}
   return out;
 }
 function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
@@ -910,7 +912,7 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
     const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
-    const mstNpt=digitsOf(row[ix.mst_npt]),mstNnt=digitsOf(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
+    const mstNpt=mstKey(row[ix.mst_npt]),mstNnt=mstKey(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
     if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
     rowNnt.push(mstNnt);
     let recs=null,src='';
@@ -977,7 +979,7 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt){
   const out=[header.concat(['Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)'])];
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
-    const d=digitsOf(row[ix]);
+    const d=mstKey(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
     out.push(base.concat([has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):'']));
   }
@@ -1039,7 +1041,7 @@ function classifyMultiSource(sheetsMat,hdrRow){
     if(cm<0||cs<0)continue;
     const groups={};
     for(const row of mat.slice(hdrRow)){
-      const mst=digitsOf(row[cm]);if(!mst)continue;
+      const mst=mstKey(row[cm]);if(!mst)continue;
       const src=String(row[cs]==null?'':row[cs]);
       (groups[mst]=groups[mst]||[]).push({src,row});
     }
@@ -1061,7 +1063,7 @@ function applyMultiSource(mat2d,mstRef,resMap){
   const ix=resolveIndex(header,mstRef);
   const out=[header.concat(['Ủy quyền QT (nhiều nguồn TN)'])];
   for(const row of mat2d.slice(1)){
-    const d=digitsOf(row[ix]);
+    const d=mstKey(row[ix]);
     out.push(row.concat([resMap[d]||'']));
   }
   return out;

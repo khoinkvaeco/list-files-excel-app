@@ -126,7 +126,7 @@ def build_hokd(hk_df: pd.DataFrame, cfg: dict) -> dict:
     c = {k: utils.resolve_column(hk_df, v) for k, v in cfg.items()}
     out: dict = {}
     for _, row in hk_df.iterrows():
-        mst = _digits(row[c["mst"]])
+        mst = _mst_key(row[c["mst"]])
         if not mst:
             continue
         out[mst] = row[c["bb"]]
@@ -135,6 +135,13 @@ def build_hokd(hk_df: pd.DataFrame, cfg: dict) -> dict:
 
 def _digits(v) -> str:
     return re.sub(r"\D", "", "" if v is None else str(v))
+
+
+def _mst_key(v) -> str:
+    """Khóa so khớp MST — bỏ số 0 đầu để khớp được cả khi file lưu MST dạng số
+    (mất số 0 đầu) lẫn dạng chữ (giữ số 0), vd '0301164435' == 301164435."""
+    d = _digits(v)
+    return d.lstrip("0") if d else d
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +160,8 @@ def build_tms_npt(tms_df: pd.DataFrame, cfg: dict):
     by_mst: dict = {}
     by_name: dict = {}
     for _, row in tms_df.iterrows():
-        mst_npt = _digits(row[c["mst_npt"]])
-        mst_nnt = _digits(row[c["mst_nnt"]])
+        mst_npt = _mst_key(row[c["mst_npt"]])
+        mst_nnt = _mst_key(row[c["mst_nnt"]])
         name = _norm_name(row[c["ten_npt"]])
         if not mst_npt and not name:
             continue
@@ -211,8 +218,8 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name, hokd_map=Non
     months_by_nnt: dict = {}  # MST NNT -> [số tháng của các NPT hợp lệ]
 
     for _, row in pl3_df.iterrows():
-        mst_npt = _digits(row[c["mst_npt"]])
-        mst_nnt = _digits(row[c["mst_nnt"]])
+        mst_npt = _mst_key(row[c["mst_npt"]])
+        mst_nnt = _mst_key(row[c["mst_nnt"]])
         name = _norm_name(row[c["ten_npt"]])
         # kỳ giảm trừ kê khai: ưu tiên ct21/ct22, nếu trống thì lấy ct15/ct16
         d_from = month_index(row[c["tu_thang"]])
@@ -347,7 +354,7 @@ def apply_pl1(pl1_df: pd.DataFrame, mst_ref, true_counts: dict,
     months_by_nnt = months_by_nnt or {}
     trues, notes = [], []
     for v in out[col]:
-        d = _digits(v)
+        d = _mst_key(v)
         if not d or (d not in true_counts and d not in total_counts):
             trues.append(""); notes.append("")
             continue
@@ -467,7 +474,7 @@ def classify_multi_source(sheets: dict) -> dict:
             continue
         groups: dict = {}
         for _, row in df.iterrows():
-            mst = _digits(row[c_mst])
+            mst = _mst_key(row[c_mst])
             if not mst:
                 continue
             src = "" if row[c_src] is None else str(row[c_src])
@@ -489,5 +496,5 @@ def apply_multi_source(pl1_df: pd.DataFrame, mst_ref, result_map: dict) -> pd.Da
     """VLOOKUP kết quả 'nhiều nguồn TN' theo MST cá nhân vào cột mới của PL1."""
     col = utils.resolve_column(pl1_df, mst_ref)
     out = pl1_df.copy()
-    out["Ủy quyền QT (nhiều nguồn TN)"] = [result_map.get(_digits(v), "") for v in out[col]]
+    out["Ủy quyền QT (nhiều nguồn TN)"] = [result_map.get(_mst_key(v), "") for v in out[col]]
     return out
