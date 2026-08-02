@@ -429,7 +429,7 @@ def _find_col(df: pd.DataFrame, *cands):
 _MS_PRIORITY = [
     "nhiều nguồn tn",
     "05-2 dưới 2 triệu, không khấu trừ thuế",
-    "OK",
+    "Đã khấu trừ TNCN 10%",
 ]
 
 
@@ -445,7 +445,7 @@ def _ms_verdict(rows_051, rows_052, c_inc, c_tax) -> str:
             if inc < 2_000_000:
                 verdicts.append("05-2 dưới 2 triệu, không khấu trừ thuế")
             elif tax + 1 >= 0.1 * inc:  # Thuế TNCN = 10% × TNCT (có dung sai làm tròn)
-                verdicts.append("OK")
+                verdicts.append("Đã khấu trừ TNCN 10%")
             else:  # Thuế TNCN < 10% × TNCT
                 verdicts.append("nhiều nguồn tn")
         for p in _MS_PRIORITY:

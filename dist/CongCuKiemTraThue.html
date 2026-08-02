@@ -1045,7 +1045,7 @@ function findCol(header,cands){
   for(const cn of cns){for(let j=0;j<norm.length;j++)if(norm[j].includes(cn))return j;} // khớp chứa
   return -1;
 }
-const MS_PRIORITY=['nhiều nguồn tn','05-2 dưới 2 triệu, không khấu trừ thuế','OK'];
+const MS_PRIORITY=['nhiều nguồn tn','05-2 dưới 2 triệu, không khấu trừ thuế','Đã khấu trừ TNCN 10%'];
 function msVerdict(r051,r052,ci,ct){
   if(r051.length>=2)return 'nhiều nguồn tn';
   if(r051.length===1&&r052.length>=1){
@@ -1053,7 +1053,7 @@ function msVerdict(r051,r052,ci,ct){
     for(const r of r052){
       const inc=ci>=0?parseAmount(r[ci]):0, tax=ct>=0?parseAmount(r[ct]):0;
       if(inc<2000000)vs.push('05-2 dưới 2 triệu, không khấu trừ thuế');
-      else if(tax+1>=0.1*inc)vs.push('OK');
+      else if(tax+1>=0.1*inc)vs.push('Đã khấu trừ TNCN 10%');
       else vs.push('nhiều nguồn tn');
     }
     for(const p of MS_PRIORITY)if(vs.includes(p))return p;
