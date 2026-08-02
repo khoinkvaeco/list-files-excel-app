@@ -178,6 +178,58 @@ def _read_spreadsheetml(file, header_row: int, sheet_name) -> pd.DataFrame:
     return pd.DataFrame(data, columns=_dedupe_columns(header)).astype(object)
 
 
+def detect_header_row(file, keywords, sheet_name=0, max_scan=25, default=1) -> int:
+    """Tự dò dòng tiêu đề: dòng (trong ``max_scan`` dòng đầu) chứa NHIỀU từ khóa
+    nhất (vd 'STT', 'Mã số thuế', 'Họ và tên'). Trả về số dòng 1-based; nếu không
+    thấy thì trả ``default``. Dùng cho file dán tay có tiêu đề ở dòng khác nhau."""
+    try:
+        mat = read_matrix(file, sheet_name=sheet_name)
+    except Exception:  # noqa: BLE001
+        return default
+    kws = [_norm_text(k) for k in keywords if str(k).strip()]
+    best_row, best_score = default, 0
+    for r in range(min(max_scan, len(mat))):
+        cells = [_norm_text(c) for c in (mat[r] or []) if c not in (None, "")]
+        text = " | ".join(cells)
+        score = sum(1 for kw in kws if kw and kw in text)
+        if score > best_score:
+            best_score, best_row = score, r + 1
+    return best_row if best_score >= 2 else default
+
+
+def detect_column_letter(file, labels, sheet_name=0, header_row=1, depth=4):
+    """Dò cột theo tên tiêu đề trong 'khối tiêu đề' (dòng tiêu đề + vài dòng kế,
+    xử lý tiêu đề gộp nhiều dòng). Trả về chữ cái cột (vd 'S') hoặc None.
+
+    Ưu tiên khớp CHÍNH XÁC trước, rồi khớp CHỨA."""
+    try:
+        mat = read_matrix(file, sheet_name=sheet_name)
+    except Exception:  # noqa: BLE001
+        return None
+    cands = [_norm_text(l) for l in labels if str(l).strip()]
+    lo = max(0, header_row - 1)
+    hi = min(len(mat), header_row - 1 + depth)
+    for exact in (True, False):
+        for r in range(lo, hi):
+            for ci, cell in enumerate(mat[r] or []):
+                t = _norm_text(cell)
+                if not t:
+                    continue
+                if any((t == cd) if exact else (cd in t) for cd in cands):
+                    return _index_to_col_letter(ci)
+    return None
+
+
+def _index_to_col_letter(idx0: int) -> str:
+    """Chỉ số cột 0-based -> chữ cái Excel (0->A, 26->AA)."""
+    s = ""
+    n = idx0 + 1
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
 def read_matrix(file, sheet_name=0) -> list[list]:
     """Đọc TOÀN BỘ dòng của 1 sheet thành ma trận thô (list các list), không diễn
     giải dòng tiêu đề. Dùng cho chức năng gộp file.

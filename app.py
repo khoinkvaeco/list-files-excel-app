@@ -677,14 +677,46 @@ def render_npt():
             "withheld": r4[3].text_input("Thuế TNCN đã khấu trừ", "K", key="n_p2c"),
         }
 
+    auto_hdr = st.checkbox(
+        "🔎 Tự động dò dòng tiêu đề (khuyên dùng cho file dán tay nhiều năm, "
+        "mỗi sheet tiêu đề ở dòng khác nhau)", value=True,
+    )
+
     if st.button("▶️ Đối chiếu NPT", type="primary", disabled=not (f_qt and f_tms)):
         try:
+            if auto_hdr:
+                _kw = ["STT", "Mã số thuế", "Họ và tên"]
+                pl3_hdr = utils.detect_header_row(f_qt, _kw, sheet_name=pl3_sheet or 0, default=pl3_hdr)
+                pl1_hdr = utils.detect_header_row(f_qt, _kw, sheet_name=pl1_sheet or 0, default=pl1_hdr)
+                pl2_hdr = utils.detect_header_row(f_qt, _kw, sheet_name=pl2_sheet or 0, default=pl2_hdr)
+                tms_hdr = utils.detect_header_row(f_tms, ["Tên NPT", "MST NPT", "Từ tháng"], sheet_name=tms_sheet or 0, default=tms_hdr)
+                # dò cột PL3/PL1 theo TÊN (vị trí khác nhau giữa file XML và file dán tay/theo năm)
+                def _dc(labels, sheet, hdr):
+                    return utils.detect_column_letter(f_qt, labels, sheet_name=sheet, header_row=hdr)
+                _map3 = {
+                    "mst_nnt": ["Mã số thuế NNT", "MST của người nộp thuế", "Mã số thuế của người nộp thuế"],
+                    "mst_npt": ["Mã số thuế NPT", "MST của người phụ thuộc", "Mã số thuế của người phụ thuộc"],
+                    "ten_npt": ["Họ và tên người phụ thuộc", "Họ và tên NPT"],
+                    "tu_thang": ["Từ tháng"],
+                    "den_thang": ["Đến tháng"],
+                }
+                for _k, _lbls in _map3.items():
+                    _c = _dc(_lbls, pl3_sheet or 0, pl3_hdr)
+                    if _c:
+                        pl3[_k] = _c
+                _pm = _dc(["Mã số thuế"], pl1_sheet or 0, pl1_hdr)
+                if _pm:
+                    pl1_mst = _pm
             tms_df = utils.read_excel(f_tms, tms_hdr, sheet_name=tms_sheet or 0)
             pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
             pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
             by_mst, by_name = npt.build_tms_npt(tms_df, tmsc)
             hokd_map = {}
             if f_hokd is not None:
+                if auto_hdr:
+                    hokd_hdr = utils.detect_header_row(
+                        f_hokd, ["Mã số thuế", "Cơ quan thuế", "Người nộp thuế"],
+                        sheet_name=0, default=hokd_hdr)
                 hk_df = utils.read_excel(f_hokd, hokd_hdr, sheet_name=0)
                 hokd_map = npt.build_hokd(hk_df, {"mst": hokd_mst, "bb": hokd_bb})
             pl3_out, counts, totals, months = npt.reconcile_pl3(

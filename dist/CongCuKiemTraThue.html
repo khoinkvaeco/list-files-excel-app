@@ -291,6 +291,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             <label class="fld"><span>Thuế TNCN đã khấu trừ</span><input type="text" id="p2_withheld" value="K"></label>
           </div>
         </div></details>
+        <label class="fld" style="flex-direction:row;align-items:center;gap:6px;margin:6px 0">
+          <input type="checkbox" id="npt_auto_hdr" checked style="width:auto">
+          <span>🔎 Tự động dò dòng tiêu đề (khuyên dùng cho file dán tay nhiều năm, mỗi sheet tiêu đề ở dòng khác nhau)</span>
+        </label>
         <button class="btn pri" id="btnNpt" disabled>▶️ Đối chiếu NPT</button>
         <div id="nptMsg"></div>
         <div id="nptResult" style="display:none">
@@ -892,6 +896,35 @@ function buildTmsNpt(mat,hdrRow,c){
   for(const k in byName)fillOpenPeriods(byName[k]);
   return {byMst,byName};
 }
+// Tự dò dòng tiêu đề: dòng chứa nhiều từ khóa nhất trong maxScan dòng đầu
+function detectHeaderRow(mat,keywords,maxScan,def){
+  maxScan=maxScan||25; def=def||1;
+  const kws=keywords.map(k=>normName(k)).filter(x=>x);
+  let best=def,bestScore=0;
+  for(let r=0;r<Math.min(maxScan,mat.length);r++){
+    const text=(mat[r]||[]).filter(c=>c!=null&&c!=='').map(c=>normName(c)).join(' | ');
+    let score=0;for(const kw of kws)if(kw&&text.includes(kw))score++;
+    if(score>bestScore){bestScore=score;best=r+1;}
+  }
+  return bestScore>=2?best:def;
+}
+// Chỉ số cột 0-based -> chữ cái Excel
+function idxToColLetter(i){let s='',n=i+1;while(n>0){const r=(n-1)%26;s=String.fromCharCode(65+r)+s;n=Math.floor((n-1)/26);}return s;}
+// Dò cột theo tên trong khối tiêu đề (dòng tiêu đề + vài dòng kế) -> chữ cái cột hoặc null
+function detectColLetter(mat,labels,headerRow,depth){
+  depth=depth||4;const cands=labels.map(l=>normName(l)).filter(x=>x);
+  const lo=Math.max(0,headerRow-1),hi=Math.min(mat.length,headerRow-1+depth);
+  for(const exact of [true,false]){
+    for(let r=lo;r<hi;r++){
+      const row=mat[r]||[];
+      for(let ci=0;ci<row.length;ci++){
+        const t=normName(row[ci]);if(!t)continue;
+        if(cands.some(cd=>exact?t===cd:t.includes(cd)))return idxToColLetter(ci);
+      }
+    }
+  }
+  return null;
+}
 // File 'MST NPT là hộ cá nhân kinh doanh' -> {MST NPT -> giá trị cột BB}
 function buildHokd(mat,hdrRow,c){
   const header=mat[hdrRow-1]||[];
@@ -913,7 +946,7 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
     const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
     const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
     const mstNpt=mstKey(row[ix.mst_npt]),mstNnt=mstKey(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
-    if(/^ct\d+/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
+    if(/^(ct\d+|\[\d+\])/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
     rowNnt.push(mstNnt);
     let recs=null,src='';
     if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
@@ -994,7 +1027,7 @@ function processPL2(mat,hdrRow,c){
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
     const rawInc=String(row[ix.income]==null?'':row[ix.income]).trim();
-    if(/^ct\d+/i.test(rawInc)||rawInc===''){out.push(base.concat(['','']));continue;}
+    if(/^(ct\d+|\[\d+\])/i.test(rawInc)||rawInc===''){out.push(base.concat(['','']));continue;}
     const inc=parseAmount(row[ix.income]);
     const rate=isNonresident(row[ix.nonresident])?0.20:0.10;
     const tax=Math.round(inc*rate);
@@ -1281,22 +1314,39 @@ $('btnNpt').onclick=()=>{
   setTimeout(()=>{
     try{
       COL_MODE='letter';
+      const auto=$('npt_auto_hdr').checked;
+      const KW=['STT','Mã số thuế','Họ và tên'];
       const tmsMat=sheetMatrix(NF.tms,$('npt_tms_sheet').value);
       const pl3Mat=sheetMatrix(NF.qt,$('npt_pl3_sheet').value);
       const pl1Mat=sheetMatrix(NF.qt,$('npt_pl1_sheet').value);
-      const lk=buildTmsNpt(tmsMat,+$('tm_hdr').value||1,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
+      const tmH=auto?detectHeaderRow(tmsMat,['Tên NPT','MST NPT','Từ tháng'],25,+$('tm_hdr').value||1):(+$('tm_hdr').value||1);
+      const p3H=auto?detectHeaderRow(pl3Mat,KW,25,+$('p3_hdr').value||1):(+$('p3_hdr').value||1);
+      const p1H=auto?detectHeaderRow(pl1Mat,KW,25,+$('p1_hdr').value||1):(+$('p1_hdr').value||1);
+      const lk=buildTmsNpt(tmsMat,tmH,{mst_nnt:$('tm_mstnnt').value,ten_npt:$('tm_ten').value,mst_npt:$('tm_mstnpt').value,tu_thang:$('tm_tu').value,den_thang:$('tm_den').value});
       let hokdMap={};
       if(NF.hokd){
         const hkMat=sheetMatrix(NF.hokd,NF.hokd.SheetNames[0]);
-        hokdMap=buildHokd(hkMat,+$('hokd_hdr').value||1,{mst:$('hokd_mst').value,bb:$('hokd_bb').value});
+        const hkH=auto?detectHeaderRow(hkMat,['Mã số thuế','Cơ quan thuế','Người nộp thuế'],25,+$('hokd_hdr').value||1):(+$('hokd_hdr').value||1);
+        hokdMap=buildHokd(hkMat,hkH,{mst:$('hokd_mst').value,bb:$('hokd_bb').value});
       }
-      const rc=reconcilePL3(pl3Mat,+$('p3_hdr').value||1,{mst_nnt:$('p3_mstnnt').value,ten_npt:$('p3_ten').value,mst_npt:$('p3_mstnpt').value,tu_thang:$('p3_tu').value,den_thang:$('p3_den').value,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap);
-      let pl1=applyPL1(pl1Mat,+$('p1_hdr').value||1,$('p1_mst').value,rc.counts,rc.totals,rc.monthsByNnt);
+      let p3nnt=$('p3_mstnnt').value,p3ten=$('p3_ten').value,p3npt=$('p3_mstnpt').value,p3tu=$('p3_tu').value,p3den=$('p3_den').value,p1mst=$('p1_mst').value;
+      if(auto){
+        const g=(labels,H)=>detectColLetter(pl3Mat,labels,H);
+        let c;
+        if(c=g(['Mã số thuế NNT','MST của người nộp thuế','Mã số thuế của người nộp thuế'],p3H))p3nnt=c;
+        if(c=g(['Mã số thuế NPT','MST của người phụ thuộc','Mã số thuế của người phụ thuộc'],p3H))p3npt=c;
+        if(c=g(['Họ và tên người phụ thuộc','Họ và tên NPT'],p3H))p3ten=c;
+        if(c=g(['Từ tháng'],p3H))p3tu=c;
+        if(c=g(['Đến tháng'],p3H))p3den=c;
+        if(c=detectColLetter(pl1Mat,['Mã số thuế'],p1H))p1mst=c;
+      }
+      const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap);
+      let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt);
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
         const sheetsMat=NF.ms.SheetNames.map(n=>({name:n,mat:sheetMatrix(NF.ms,n)}));
         const resMap=classifyMultiSource(sheetsMat,msHdr);
-        pl1=applyMultiSource(pl1,$('p1_mst').value,resMap);
+        pl1=applyMultiSource(pl1,p1mst,resMap);
       }
       NPTRES={'PL3 đối chiếu NPT':rc.out,'PL1 tổng hợp NPT':pl1};
       // Phụ lục 05-2: tính lại thuế
@@ -1304,7 +1354,8 @@ $('btnNpt').onclick=()=>{
         const pl2Sheet=$('npt_pl2_sheet').value;
         if(pl2Sheet){
           const pl2Mat=sheetMatrix(NF.qt,pl2Sheet);
-          NPTRES['PL2 tính thuế']=processPL2(pl2Mat,+$('p2_hdr').value||1,{income:$('p2_income').value,nonresident:$('p2_nonres').value,withheld:$('p2_withheld').value});
+          const p2H=auto?detectHeaderRow(pl2Mat,KW,25,+$('p2_hdr').value||1):(+$('p2_hdr').value||1);
+          NPTRES['PL2 tính thuế']=processPL2(pl2Mat,p2H,{income:$('p2_income').value,nonresident:$('p2_nonres').value,withheld:$('p2_withheld').value});
         }
       }catch(e){/* PL2 tùy chọn */}
       $('nptMsg').innerHTML='';$('nptResult').style.display='block';

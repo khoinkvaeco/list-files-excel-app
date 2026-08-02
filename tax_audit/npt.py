@@ -231,7 +231,7 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name, hokd_map=Non
 
         # bỏ qua dòng không phải dữ liệu (dòng mã kỹ thuật ct07/ct08..., dòng trống)
         raw_mst_nnt = "" if row[c["mst_nnt"]] is None else str(row[c["mst_nnt"]]).strip()
-        is_ct_row = bool(re.fullmatch(r"ct\d+(_\w+)?", raw_mst_nnt, flags=re.I))
+        is_ct_row = bool(re.fullmatch(r"(ct\d+(_\w+)?|\[\d+\])", raw_mst_nnt, flags=re.I))
         if is_ct_row or (not mst_nnt and not mst_npt and not name):
             tms_from.append(""); tms_to.append(""); matched_by.append("")
             valid.append(""); reasons.append(""); row_nnt.append("")
@@ -387,8 +387,8 @@ def process_pl2(pl2_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     for _, row in pl2_df.iterrows():
         raw_inc = row[c["income"]]
         raw_str = "" if raw_inc is None else str(raw_inc).strip()
-        # bỏ qua dòng mã kỹ thuật (ct11...) và dòng trống
-        if re.fullmatch(r"ct\d+(_\w+)?", raw_str, flags=re.I) or raw_str == "":
+        # bỏ qua dòng mã kỹ thuật (ct11.../[12]...) và dòng trống
+        if re.fullmatch(r"(ct\d+(_\w+)?|\[\d+\])", raw_str, flags=re.I) or raw_str == "":
             calc.append(""); diff.append("")
             continue
         inc = utils.parse_amount(raw_inc)
