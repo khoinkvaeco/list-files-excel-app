@@ -529,7 +529,7 @@ def classify_multi_source(sheets: dict) -> dict:
     for _name, df in sheets.items():
         if df is None or df.empty:
             continue
-        c_mst = _find_col(df, "MST cá nhân", "MST ca nhan", "Mã số thuế")
+        c_mst = _find_col(df, "MST cá nhân", "MST ca nhan", "Mã số thuế", "MST")
         c_src = _find_col(df, "Nguồn dữ liệu")
         c_inc = _find_col(df, "Thu nhập chịu thuế")
         c_tax = _find_col(df, "Thuế TNCN", "số thuế TNCN đã khấu trừ")

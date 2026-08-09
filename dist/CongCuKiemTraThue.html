@@ -1115,7 +1115,7 @@ function classifyMultiSource(sheetsMat,hdrRow){
   for(const {mat} of sheetsMat){
     if(!mat||mat.length<hdrRow)continue;
     const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
-    const cm=findCol(header,['MST cá nhân','Mã số thuế']);
+    const cm=findCol(header,['MST cá nhân','Mã số thuế','MST']);
     const cs=findCol(header,['Nguồn dữ liệu']);
     const ci=findCol(header,['Thu nhập chịu thuế']);
     const ct=findCol(header,['Thuế TNCN','số thuế TNCN đã khấu trừ']);
@@ -1406,7 +1406,9 @@ $('btnNpt').onclick=()=>{
       }
       let p3nnt=$('p3_mstnnt').value,p3ten=$('p3_ten').value,p3npt=$('p3_mstnpt').value,p3tu=$('p3_tu').value,p3den=$('p3_den').value,p1mst=$('p1_mst').value;
       let p1tntt=$('p1_tntt').value,p1pay=$('p1_pay').value,p1uq=$('p1_uq').value;
-      if(auto){
+      // Luôn dò cột theo TÊN (chỉ ghi đè khi tìm thấy; nếu không thì giữ chữ cái nhập tay)
+      // -> đúng cho mọi bố cục file, không phụ thuộc ô 'Tự động dò dòng tiêu đề'.
+      {
         const g=(labels,H)=>detectColLetter(pl3Mat,labels,H);
         let c;
         if(c=g(['Mã số thuế NNT','MST của người nộp thuế','Mã số thuế của người nộp thuế'],p3H))p3nnt=c;
