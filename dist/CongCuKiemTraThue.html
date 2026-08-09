@@ -300,7 +300,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <input type="checkbox" id="npt_auto_hdr" checked style="width:auto">
           <span>🔎 Tự động dò dòng tiêu đề (khuyên dùng cho file dán tay nhiều năm, mỗi sheet tiêu đề ở dòng khác nhau)</span>
         </label>
-        <button class="btn pri" id="btnNpt" disabled>▶️ Đối chiếu NPT</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button class="btn pri" id="btnNpt" disabled>▶️ Đối chiếu NPT</button>
+          <button class="btn" id="btnNptSaveCfg">💾 Lưu cấu hình cột</button>
+          <span id="nptCfgNote" class="okbox" style="display:none">✅ Đã lưu cấu hình cột.</span>
+        </div>
         <div id="nptMsg"></div>
         <div id="nptResult" style="display:none">
           <div class="metrics" id="nptMetrics"></div>
@@ -331,7 +335,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>Số dòng tiêu đề dùng chung (0 = không)</span><input type="number" id="mg_hdr" min="0" value="1"></label>
         </div>
         <label class="fld"><span>Tên file kết quả</span><input type="text" id="mg_name" value="TongHop.xlsx"></label>
-        <button class="btn pri" id="btnMerge" disabled>⬇️ Gộp & tải file tổng hợp</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button class="btn pri" id="btnMerge" disabled>⬇️ Gộp & tải file tổng hợp</button>
+          <button class="btn" id="btnMergeSaveCfg">💾 Lưu cấu hình</button>
+          <span id="mergeCfgNote" class="okbox" style="display:none">✅ Đã lưu cấu hình.</span>
+        </div>
         <div id="mergeMsg"></div>
         <div class="tblwrap" style="margin-top:10px" id="mergePreview"></div>
       </div>
@@ -1192,6 +1200,33 @@ $('colMode').onchange=()=>{setColInputs($('colMode').value);modeHint();};
 $('btnSave').onclick=saveCfg;
 $('btnReset').onclick=()=>{localStorage.removeItem(LS);$('colMode').value='letter';$('m_hdr').value=11;$('t_hdr').value=2;$('e_hdr').value=4;setColInputs('letter');setGoodsDefaults();$('savedNote').style.display='none';modeHint();};
 
+/* Lưu cấu hình cột cho các chức năng khác (Gộp file, Kiểm tra NPT) */
+const CFG2='taxtool_cfg2_v1';
+const CFG2_IDS=[
+  // Gộp file
+  'mergeMode','mg_hdr','mg_name','mg_blank','mg_dedupe','mg_source',
+  // Kiểm tra NPT
+  'npt_auto_hdr','p3_hdr','p3_mstnnt','p3_ten','p3_mstnpt','p3_tu','p3_den','p3_tungay','p3_dengay',
+  'tm_hdr','tm_mstnnt','tm_ten','tm_mstnpt','tm_tu','tm_den',
+  'p1_hdr','p1_mst','p1_tntt','p1_pay','p1_uq',
+  'p2_hdr','p2_income','p2_nonres','p2_withheld',
+  'hokd_hdr','hokd_mst','hokd_bb','ms_hdr'
+];
+function cfg2Save(){
+  const o={};for(const id of CFG2_IDS){const el=$(id);if(!el)continue;o[id]=(el.type==='checkbox')?el.checked:el.value;}
+  localStorage.setItem(CFG2,JSON.stringify(o));
+}
+function cfg2Load(){
+  let o=null;try{o=JSON.parse(localStorage.getItem(CFG2));}catch(e){}
+  if(!o)return false;
+  for(const id of CFG2_IDS){const el=$(id);if(!el||!(id in o))continue;if(el.type==='checkbox')el.checked=!!o[id];else el.value=o[id];}
+  return true;
+}
+CFG2_IDS.forEach(id=>{const el=$(id);if(el)el.addEventListener('change',cfg2Save);}); // tự lưu khi thay đổi
+function flashNote(id){const n=$(id);if(n){n.style.display='';setTimeout(()=>{n.style.display='none';},2500);}}
+$('btnNptSaveCfg').onclick=()=>{cfg2Save();flashNote('nptCfgNote');};
+$('btnMergeSaveCfg').onclick=()=>{cfg2Save();flashNote('mergeCfgNote');};
+
 /* Tabs */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
@@ -1420,6 +1455,7 @@ $('btnNptDl').onclick=()=>{if(NPTRES)writeWB(NPTRES,'ket_qua_doi_chieu_NPT.xlsx'
 
 /* khởi tạo */
 loadCfg();
+if(cfg2Load()){$('nptCfgNote').style.display='';$('mergeCfgNote').style.display='';}
 </script>
 </body>
 </html>
