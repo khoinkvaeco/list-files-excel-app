@@ -760,17 +760,33 @@ function repeatedChildName(node){
   let best=null,mx=0;for(const n in counts){if(counts[n]>mx){mx=counts[n];best=n;}}
   return mx>=2?best:null;
 }
-function collectTablesX(node,tables){
-  const name=repeatedChildName(node);
-  if(name){tables.push({title:xmlLocal(node.tagName),rows:xChildren(node).filter(c=>xmlLocal(c.tagName)===name)});return;}
-  for(const c of xChildren(node))collectTablesX(c,tables);
+// 1 dòng chi tiết phụ lục: node con có ít nhất 1 thẻ dạng mã chỉ tiêu ct.. (ct07, ct08…)
+function isRowLike(node){return xChildren(node).some(g=>/^ct\d+/i.test(xmlLocal(g.tagName)));}
+// Tìm các "dòng bảng" kể cả khi CHỈ CÓ 1 dòng (phụ lục 05-2 nhiều khi chỉ 1 người)
+// Chỉ áp dụng cho node PHỤ LỤC (tên chứa 05_1/05_2/05_3 hoặc BK-QTT) — tránh nhầm
+// với tờ khai chính (CTieuChinh cũng chứa các thẻ ct..).
+function tableRowsOf(node){
+  const t=xmlLocal(node.tagName);
+  if(!/(05[_-]?[123])|(bk.?qtt)|(bke)/i.test(t))return null;
+  const kids=xChildren(node).filter(c=>xChildren(c).length>0);
+  const byTag={};for(const k of kids){const n=xmlLocal(k.tagName);(byTag[n]=byTag[n]||[]).push(k);}
+  let best=null,mx=0;
+  for(const n in byTag){if(byTag[n].some(isRowLike)&&byTag[n].length>mx){mx=byTag[n].length;best=n;}}
+  return best?byTag[best]:null;
 }
-function leafValuesX(node,prefix,out){
+function collectTablesX(node,tables,rowSet){
+  const name=repeatedChildName(node);
+  let rows=null;
+  if(name)rows=xChildren(node).filter(c=>xmlLocal(c.tagName)===name);
+  else{const r=tableRowsOf(node);if(r&&r.length)rows=r;}
+  if(rows){rows.forEach(x=>rowSet.add(x));tables.push({title:xmlLocal(node.tagName),rows});return;}
+  for(const c of xChildren(node))collectTablesX(c,tables,rowSet);
+}
+function leafValuesX(node,prefix,out,rowSet){
   const kids=xChildren(node);
   if(!kids.length){const v=(node.textContent||'').trim();if(v)out.push({path:prefix,value:v});return;}
-  const rep=repeatedChildName(node);
-  for(const c of kids){if(rep&&xmlLocal(c.tagName)===rep)continue;
-    leafValuesX(c,prefix?prefix+'/'+xmlLocal(c.tagName):xmlLocal(c.tagName),out);}
+  for(const c of kids){if(rowSet.has(c))continue;  // bỏ qua các dòng bảng -> không lọt vào Thông tin chung
+    leafValuesX(c,prefix?prefix+'/'+xmlLocal(c.tagName):xmlLocal(c.tagName),out,rowSet);}
 }
 function maybeNumber(v){
   if(/^-?\d+$/.test(v)){const d=v.replace('-','');if((d.startsWith('0')&&d!=='0')||d.length>15)return v;const n=parseInt(v,10);return Number.isSafeInteger(n)?n:v;}
@@ -781,8 +797,9 @@ function buildTaxSheets(text){
   const doc=new DOMParser().parseFromString(text,'application/xml');
   if(doc.querySelector('parsererror'))throw new Error('File XML không hợp lệ hoặc bị lỗi định dạng.');
   const root=doc.documentElement;
-  const tables=[];collectTablesX(root,tables);
-  const fields=[];leafValuesX(root,'',fields);
+  const rowSet=new Set();
+  const tables=[];collectTablesX(root,tables,rowSet);
+  const fields=[];leafValuesX(root,'',fields,rowSet);
   const sheets={};
   const ctVal={};
   for(const f of fields){const leaf=f.path.split('/').pop();if(FORM_CT.has(leaf)&&!(leaf in ctVal))ctVal[leaf]=f.value;}
