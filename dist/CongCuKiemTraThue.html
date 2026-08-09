@@ -892,13 +892,13 @@ function buildTmsNpt(mat,hdrRow,c){
     const periods=parsePeriods(row[ix.tu_thang],row[ix.den_thang]);
     if(!periods.length)continue;
     for(const [f,t] of periods){
-      const rec={from:f,to:t,mstNnt};
-      if(mstNpt)(byMst[mstNpt]=byMst[mstNpt]||[]).push(rec);
-      if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push(rec);
+      // bản sao riêng cho byMst và byName -> không chia sẻ cùng 1 object
+      if(mstNpt)(byMst[mstNpt]=byMst[mstNpt]||[]).push({from:f,to:t,mstNnt});
+      if(name&&mstNnt)(byName[mstNnt+'|'+name]=byName[mstNnt+'|'+name]||[]).push({from:f,to:t,mstNnt});
     }
   }
+  // 'Đến tháng' trống = còn hiệu lực; chỉ nối kỳ theo CÙNG 1 MST NPT (không theo tên)
   for(const k in byMst)fillOpenPeriods(byMst[k]);
-  for(const k in byName)fillOpenPeriods(byName[k]);
   return {byMst,byName};
 }
 // Tự dò dòng tiêu đề: dòng chứa nhiều từ khóa nhất trong maxScan dòng đầu

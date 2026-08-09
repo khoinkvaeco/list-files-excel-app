@@ -170,15 +170,14 @@ def build_tms_npt(tms_df: pd.DataFrame, cfg: dict):
         if not periods:
             continue  # dòng tiêu đề phụ / trống
         for p_from, p_to in periods:
-            rec = {"from": p_from, "to": p_to, "mst_nnt": mst_nnt}
+            # dùng bản sao riêng cho by_mst và by_name -> không chia sẻ cùng 1 dict
             if mst_npt:
-                by_mst.setdefault(mst_npt, []).append(rec)
+                by_mst.setdefault(mst_npt, []).append({"from": p_from, "to": p_to, "mst_nnt": mst_nnt})
             if name and mst_nnt:
-                by_name.setdefault((mst_nnt, name), []).append(rec)
-    # cùng 1 MST NPT: 'Đến tháng' trống = liên tục đến 'Từ tháng' của dòng kế
+                by_name.setdefault((mst_nnt, name), []).append({"from": p_from, "to": p_to, "mst_nnt": mst_nnt})
+    # 'Đến tháng' trống = còn hiệu lực. Chỉ nối kỳ liên tục theo CÙNG 1 MST NPT
+    # (KHÔNG nối theo tên — tránh gộp nhầm 2 NPT khác nhau nhưng trùng tên).
     for recs in by_mst.values():
-        _fill_open_periods(recs)
-    for recs in by_name.values():
         _fill_open_periods(recs)
     return by_mst, by_name
 
