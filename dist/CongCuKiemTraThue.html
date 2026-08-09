@@ -281,6 +281,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p1_hdr" min="1" value="1"></label>
             <label class="fld"><span>Cột MST NNT</span><input type="text" id="p1_mst" value="E"></label>
           </div>
+          <div class="row2">
+            <label class="fld"><span>Thu nhập tính thuế</span><input type="text" id="p1_tntt" value="W"></label>
+            <label class="fld"><span>Tổng số thuế phải nộp</span><input type="text" id="p1_pay" value="Z"></label>
+            <label class="fld"><span>Cá nhân uỷ quyền QT thay</span><input type="text" id="p1_uq" value="I"></label>
+          </div>
           <h3>Phụ lục 05-2 (tính lại thuế TNCN + chênh lệch)</h3>
           <div class="row2">
             <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p2_hdr" min="1" value="1"></label>
@@ -1004,17 +1009,35 @@ function monthsNote(list){
   return Object.keys(cnt).map(Number).sort((a,b)=>a-b)
     .map(m=>`có ${cnt[m]} mst npt đủ ${String(m).padStart(2,'0')} tháng`).join('; ');
 }
-function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt){
+// Biểu thuế TNCN lũy tiến từng phần (quy đổi theo NĂM) trên 'Thu nhập tính thuế'
+const PIT_BR_YEAR=[[60e6,.05],[120e6,.10],[216e6,.15],[384e6,.20],[624e6,.25],[960e6,.30],[Infinity,.35]];
+function pitProgressiveYear(t){if(!(t>0))return 0;let tax=0,lo=0;for(const [hi,rate] of PIT_BR_YEAR){if(t>lo){tax+=(Math.min(t,hi)-lo)*rate;lo=hi;}else break;}return tax;}
+function truthy(v){return ['1','true','x','co'].includes(normName(v));}
+function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix=resolveIndex(header,mstRef);
   monthsByNnt=monthsByNnt||{};
-  // Cột tỉ lệ 'Số NPT (TRUE/Tổng kê khai)' đã chuyển sang PL3.
-  const out=[header.concat(['Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)'])];
+  // Kiểm tra Tổng số thuế phải nộp (đặt TRƯỚC cột 'Số NPT hợp lệ')
+  let tIx=null;
+  if(taxCfg){tIx={tntt:resolveIndex(header,taxCfg.tntt),pay:resolveIndex(header,taxCfg.tax_payable),uq:resolveIndex(header,taxCfg.uy_quyen)};}
+  const extra=taxCfg?['Thuế TNCN phải nộp đúng?','Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)']
+                    :['Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)'];
+  const out=[header.concat(extra)];
   for(const row of mat.slice(hdrRow)){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
     const d=mstKey(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
-    out.push(base.concat([has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):'']));
+    const npt=[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
+    if(taxCfg){
+      let verdict='';
+      const raw=String(row[tIx.tntt]==null?'':row[tIx.tntt]).trim();
+      if(!(/^(ct\d+|\[\d+\])/i.test(raw)||raw==='')&&truthy(row[tIx.uq])){
+        const exp=Math.round(pitProgressiveYear(parseAmount(row[tIx.tntt])));
+        const pay=Math.round(parseAmount(row[tIx.pay]));
+        verdict=Math.abs(pay-exp)<=1?'TRUE':'FALSE';
+      }
+      out.push(base.concat([verdict].concat(npt)));
+    }else out.push(base.concat(npt));
   }
   return out;
 }
@@ -1330,6 +1353,7 @@ $('btnNpt').onclick=()=>{
         hokdMap=buildHokd(hkMat,hkH,{mst:$('hokd_mst').value,bb:$('hokd_bb').value});
       }
       let p3nnt=$('p3_mstnnt').value,p3ten=$('p3_ten').value,p3npt=$('p3_mstnpt').value,p3tu=$('p3_tu').value,p3den=$('p3_den').value,p1mst=$('p1_mst').value;
+      let p1tntt=$('p1_tntt').value,p1pay=$('p1_pay').value,p1uq=$('p1_uq').value;
       if(auto){
         const g=(labels,H)=>detectColLetter(pl3Mat,labels,H);
         let c;
@@ -1339,9 +1363,12 @@ $('btnNpt').onclick=()=>{
         if(c=g(['Từ tháng'],p3H))p3tu=c;
         if(c=g(['Đến tháng'],p3H))p3den=c;
         if(c=detectColLetter(pl1Mat,['Mã số thuế'],p1H))p1mst=c;
+        if(c=detectColLetter(pl1Mat,['Thu nhập tính thuế'],p1H))p1tntt=c;
+        if(c=detectColLetter(pl1Mat,['Tổng số thuế phải nộp'],p1H))p1pay=c;
+        if(c=detectColLetter(pl1Mat,['Cá nhân uỷ quyền QT thay','Cá nhân uỷ quyền quyết toán thay'],p1H))p1uq=c;
       }
       const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap);
-      let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt);
+      let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt,{tntt:p1tntt,tax_payable:p1pay,uy_quyen:p1uq});
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
         const sheetsMat=NF.ms.SheetNames.map(n=>({name:n,mat:sheetMatrix(NF.ms,n)}));

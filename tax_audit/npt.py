@@ -327,6 +327,70 @@ def reconcile_pl3(pl3_df: pd.DataFrame, cfg: dict, by_mst, by_name, hokd_map=Non
 
 
 # ---------------------------------------------------------------------------
+# Kiểm tra Tổng số thuế phải nộp (PL1) theo biểu thuế lũy tiến từng phần
+# ---------------------------------------------------------------------------
+# Biểu thuế TNCN lũy tiến từng phần — quy đổi theo NĂM (bậc tháng × 12).
+# Áp dụng cho cá nhân cư trú có thu nhập từ tiền lương/tiền công (PL 05-1).
+_PIT_BRACKETS_YEAR = [
+    (60_000_000, 0.05),
+    (120_000_000, 0.10),
+    (216_000_000, 0.15),
+    (384_000_000, 0.20),
+    (624_000_000, 0.25),
+    (960_000_000, 0.30),
+    (float("inf"), 0.35),
+]
+
+
+def pit_progressive_year(tntt: float) -> float:
+    """Thuế TNCN cả năm theo biểu lũy tiến từng phần trên 'Thu nhập tính thuế'."""
+    if tntt is None or tntt <= 0:
+        return 0.0
+    tax, lo = 0.0, 0.0
+    for hi, rate in _PIT_BRACKETS_YEAR:
+        if tntt > lo:
+            tax += (min(tntt, hi) - lo) * rate
+            lo = hi
+        else:
+            break
+    return tax
+
+
+def _truthy(v) -> bool:
+    """Cờ 'có/đúng': 1/true/x/'có' -> True; 0/false/rỗng -> False."""
+    return _norm_name(v) in ("1", "true", "x", "co", "có")
+
+
+def check_pl1_tax(pl1_df: pd.DataFrame, cfg: dict, tol: float = 1.0) -> pd.DataFrame:
+    """Thêm cột 'Thuế TNCN phải nộp đúng?' vào PL1 (TRUE/FALSE), đặt TRƯỚC cột
+    'Số NPT hợp lệ (TRUE)'.
+
+    ``cfg``: {tntt, tax_payable, uy_quyen} — tham chiếu cột 'Thu nhập tính thuế',
+    'Tổng số thuế phải nộp', 'Cá nhân uỷ quyền QT thay'.
+
+    Chỉ xét cá nhân ỦY QUYỀN quyết toán (tổ chức chi trả quyết toán thay -> phải
+    có 'Tổng số thuế phải nộp' = thuế lũy tiến trên 'Thu nhập tính thuế'). Cá nhân
+    KHÔNG ủy quyền (tự quyết toán) -> để trống (không xét)."""
+    c = {k: utils.resolve_column(pl1_df, v) for k, v in cfg.items()}
+    out = pl1_df.copy()
+    res = []
+    for _, row in pl1_df.iterrows():
+        raw = "" if row[c["tntt"]] is None else str(row[c["tntt"]]).strip()
+        if re.fullmatch(r"(ct\d+(_\w+)?|\[\d+\])", raw, flags=re.I) or raw == "":
+            res.append("")
+            continue
+        if not _truthy(row[c["uy_quyen"]]):
+            res.append("")  # cá nhân tự quyết toán — không xét ở đây
+            continue
+        tntt = utils.parse_amount(row[c["tntt"]])
+        payable = round(utils.parse_amount(row[c["tax_payable"]]))
+        expected = round(pit_progressive_year(tntt))
+        res.append("TRUE" if abs(payable - expected) <= tol else "FALSE")
+    out["Thuế TNCN phải nộp đúng?"] = res
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Bước 3: điền tổng NPT TRUE vào cột cuối Phụ lục 1
 # ---------------------------------------------------------------------------
 def _months_note(month_list) -> str:

@@ -668,6 +668,11 @@ def render_npt():
         r3 = st.columns(6)
         pl1_hdr = r3[0].number_input("Dòng tiêu đề PL1", 1, 20, 1)
         pl1_mst = r3[1].text_input("Cột MST NNT (PL1)", "E", key="n_p1")
+        pl1tax = {
+            "tntt": r3[2].text_input("Thu nhập tính thuế", "W", key="n_p1t"),
+            "tax_payable": r3[3].text_input("Tổng số thuế phải nộp", "Z", key="n_p1z"),
+            "uy_quyen": r3[4].text_input("Cá nhân uỷ quyền QT thay", "I", key="n_p1u"),
+        }
         st.markdown("**Phụ lục 05-2** (tính lại thuế TNCN + chênh lệch)")
         r4 = st.columns(6)
         pl2_hdr = r4[0].number_input("Dòng tiêu đề PL2", 1, 20, 1)
@@ -707,6 +712,15 @@ def render_npt():
                 _pm = _dc(["Mã số thuế"], pl1_sheet or 0, pl1_hdr)
                 if _pm:
                     pl1_mst = _pm
+                _map1 = {
+                    "tntt": ["Thu nhập tính thuế"],
+                    "tax_payable": ["Tổng số thuế phải nộp"],
+                    "uy_quyen": ["Cá nhân uỷ quyền QT thay", "Cá nhân uỷ quyền quyết toán thay"],
+                }
+                for _k, _lbls in _map1.items():
+                    _c = _dc(_lbls, pl1_sheet or 0, pl1_hdr)
+                    if _c:
+                        pl1tax[_k] = _c
             tms_df = utils.read_excel(f_tms, tms_hdr, sheet_name=tms_sheet or 0)
             pl3_df = utils.read_excel(f_qt, pl3_hdr, sheet_name=pl3_sheet or 0)
             pl1_df = utils.read_excel(f_qt, pl1_hdr, sheet_name=pl1_sheet or 0)
@@ -721,7 +735,12 @@ def render_npt():
                 hokd_map = npt.build_hokd(hk_df, {"mst": hokd_mst, "bb": hokd_bb})
             pl3_out, counts, totals, months = npt.reconcile_pl3(
                 pl3_df, pl3, by_mst, by_name, hokd_map)
-            pl1_out = npt.apply_pl1(pl1_df, pl1_mst, counts, totals, months)
+            # Kiểm tra Tổng số thuế phải nộp (cột trước 'Số NPT hợp lệ')
+            try:
+                pl1_out = npt.check_pl1_tax(pl1_df, pl1tax)
+            except Exception:  # noqa: BLE001
+                pl1_out = pl1_df  # thiếu cột -> bỏ qua kiểm tra thuế
+            pl1_out = npt.apply_pl1(pl1_out, pl1_mst, counts, totals, months)
             if f_ms is not None:
                 ms_sheets = {
                     sn: utils.read_excel(f_ms, ms_hdr, sheet_name=sn)
