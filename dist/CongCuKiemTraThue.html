@@ -322,10 +322,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         <label class="fld"><span>Kiểu gộp</span>
           <select id="mergeMode">
             <option value="files">Gộp nhiều FILE (mỗi file lấy sheet đầu)</option>
-            <option value="sheets">Gộp các SHEET trong 1 file</option>
+            <option value="sheets">Gộp các SHEET (tất cả sheet của mọi file)</option>
           </select></label>
-        <label class="fld"><span>📎 File Excel</span>
-          <input type="file" id="f_merge" accept=".xlsx,.xls,.csv" multiple></label>
+        <label class="fld"><span>📎 File Excel hoặc file nén (.zip)</span>
+          <input type="file" id="f_merge" accept=".xlsx,.xls,.csv,.zip" multiple></label>
+        <p class="hint">Có thể chọn file nén <b>.zip</b> — công cụ sẽ tự đọc các file Excel bên trong và gộp lại.</p>
         <div class="row2">
           <label class="fld"><input type="checkbox" id="mg_blank" checked> Bỏ dòng trống</label>
           <label class="fld"><input type="checkbox" id="mg_source" checked> Thêm cột "Nguồn"</label>
@@ -487,6 +488,54 @@ function classifyStatus(status,cfg,notFound){
 
 /* ================= ĐỌC EXCEL ================= */
 async function readWB(file){const buf=await file.arrayBuffer();return XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true});}
+function readWBBytes(bytes){return XLSX.read(bytes,{type:'array',cellDates:true});}
+/* ===== Đọc file nén .zip (thuần trình duyệt, không cần thư viện ngoài) ===== */
+async function inflateRaw(bytes){
+  if(typeof DecompressionStream==='undefined')throw new Error('Trình duyệt không hỗ trợ giải nén .zip (cần bản mới hơn).');
+  const st=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+const _u16=(d,o)=>d[o]|(d[o+1]<<8);
+const _u32=(d,o)=>(d[o]|(d[o+1]<<8)|(d[o+2]<<16)|(d[o+3]<<24))>>>0;
+function zipEntries(buf){
+  const d=new Uint8Array(buf);let eo=-1;
+  for(let i=d.length-22;i>=0&&i>=d.length-22-65557;i--){if(d[i]===0x50&&d[i+1]===0x4b&&d[i+2]===0x05&&d[i+3]===0x06){eo=i;break;}}
+  if(eo<0)throw new Error('File nén .zip không hợp lệ.');
+  const cnt=_u16(d,eo+10);let off=_u32(d,eo+16);const out=[];
+  for(let k=0;k<cnt&&off+46<=d.length;k++){
+    if(_u32(d,off)!==0x02014b50)break;
+    const flag=_u16(d,off+8),method=_u16(d,off+10),compSize=_u32(d,off+20);
+    const nameLen=_u16(d,off+28),extraLen=_u16(d,off+30),cmtLen=_u16(d,off+32),localOff=_u32(d,off+42);
+    const nameBytes=d.subarray(off+46,off+46+nameLen);
+    const name=(flag&0x800)?new TextDecoder('utf-8').decode(nameBytes):new TextDecoder('utf-8').decode(nameBytes);
+    const lNameLen=_u16(d,localOff+26),lExtraLen=_u16(d,localOff+28),dataStart=localOff+30+lNameLen+lExtraLen;
+    out.push({name,method,comp:d.subarray(dataStart,dataStart+compSize)});
+    off+=46+nameLen+extraLen+cmtLen;
+  }
+  return out;
+}
+// Trả về [{name, buf}] cho từng file Excel/CSV bên trong .zip
+async function excelFromZip(file){
+  const entries=zipEntries(await file.arrayBuffer());const out=[];
+  for(const e of entries){
+    const base=(e.name||'').split('/').pop();
+    if(!base||/^__MACOSX|^\.|~\$/i.test(e.name)||!/\.(xlsx|xls|csv)$/i.test(base))continue;
+    let data;
+    if(e.method===0)data=e.comp;else if(e.method===8)data=await inflateRaw(e.comp);else continue;
+    out.push({name:file.name.replace(/\.zip$/i,'')+' › '+base,buf:data});
+  }
+  return out;
+}
+// Mở rộng danh sách file đầu vào: .zip -> các workbook bên trong; còn lại đọc như thường
+async function expandMergeInputs(files){
+  const list=[];
+  for(const f of files){
+    if(/\.zip$/i.test(f.name)){
+      for(const it of await excelFromZip(f))list.push({name:it.name,wb:readWBBytes(it.buf)});
+    }else list.push({name:f.name,wb:await readWB(f)});
+  }
+  return list;
+}
 function sheetMatrix(wb,name){const ws=wb.Sheets[name||wb.SheetNames[0]];if(!ws)return [];return XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,blankrows:true});}
 function fmtNum(x){if(x==null||x==='')return '';if(typeof x==='number')return x.toLocaleString('vi-VN');return x;}
 
@@ -1335,8 +1384,10 @@ $('btnMerge').onclick=async()=>{
   $('mergeMsg').innerHTML='<div class="muted">Đang xử lý…</div>';
   try{
     const mode=$('mergeMode').value;let units=[];
-    if(mode==='files'){for(const f of files){const wb=await readWB(f);units.push([f.name,sheetMatrix(wb,wb.SheetNames[0])]);}}
-    else{const wb=await readWB(files[0]);wb.SheetNames.forEach(sn=>units.push([sn,sheetMatrix(wb,sn)]));}
+    const wbs=await expandMergeInputs(files);  // mở .zip -> các file Excel bên trong
+    if(!wbs.length){$('mergeMsg').innerHTML='<div class="warnbox">Không tìm thấy file Excel nào (kể cả trong file nén .zip).</div>';return;}
+    if(mode==='files'){for(const w of wbs){units.push([w.name,sheetMatrix(w.wb,w.wb.SheetNames[0])]);}}
+    else{for(const w of wbs){w.wb.SheetNames.forEach(sn=>units.push([wbs.length>1?w.name+' › '+sn:sn,sheetMatrix(w.wb,sn)]));}}
     const opt={blank:$('mg_blank').checked,source:$('mg_source').checked,dedupe:$('mg_dedupe').checked,headerRows:Math.max(0,+$('mg_hdr').value||0)};
     const {out,stats}=mergeUnits(units,opt);
     if(!out.length){$('mergeMsg').innerHTML='<div class="warnbox">Không có dữ liệu để gộp.</div>';return;}
