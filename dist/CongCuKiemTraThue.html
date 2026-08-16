@@ -723,12 +723,28 @@ function buildEinvLookup(einvWb,einvCfg){
   return map;
 }
 
+/* Dòng tiêu đề của file chính: nếu dòng đã cấu hình không tra được các cột cần thiết
+   (thường do cấu hình lưu từ file khác), tự dò trong 30 dòng đầu dòng nào khớp nhiều
+   cột nhất. Nếu dòng cấu hình đã khớp đủ thì GIỮ NGUYÊN cấu hình của người dùng. */
+function findMainHeaderRow(mat,cols,cfgRow){
+  const need=['mst','invoice_no','invoice_date','pretax','vat','goods'].filter(k=>cols[k]&&String(cols[k]).trim());
+  if(!need.length)return cfgRow;
+  const score=r=>{const h=mat[r-1]||[];let n=0;for(const k of need)if(resolveIndex(h,cols[k])>=0)n++;return n;};
+  const base=score(cfgRow);
+  if(base===need.length)return cfgRow;
+  let best=cfgRow,bs=base;
+  for(let r=1;r<=Math.min(30,mat.length);r++){const s=score(r);if(s>bs){bs=s;best=r;}}
+  return best;
+}
 function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   const mat=sheetMatrix(mainWb,mainSheet);
-  const header=mat[cfg.main.headerRow-1]||[];
+  const hdrRow=findMainHeaderRow(mat,cfg.main.cols,cfg.main.headerRow);
+  cfg.main.headerRow=hdrRow;
+  const header=mat[hdrRow-1]||[];
   const ci={};for(const k in cfg.main.cols)ci[k]=resolveIndex(header,cfg.main.cols[k]);
   const missing=Object.keys(ci).filter(k=>k!=='period'&&k!=='seller'&&ci[k]<0);
-  if(missing.length)throw new Error('Không tìm thấy cột: '+missing.join(', ')+'. Kiểm tra lại Dòng tiêu đề / tên cột.');
+  if(missing.length)throw new Error('Không tìm thấy cột: '+missing.join(', ')
+    +'. Đã thử dòng tiêu đề '+hdrRow+' của sheet "'+mainSheet+'". Kiểm tra lại Dòng tiêu đề / tên cột.');
   // giữ đúng 20 cột gốc (đệm cho khớp với dòng dữ liệu cũng đệm 20) -> tiêu đề không lệch cột
   const origHeader=header.slice(0,20);while(origHeader.length<20)origHeader.push('');
   const iPeriod=(cfg.main.cols.period&&String(cfg.main.cols.period).trim())?resolveIndex(header,cfg.main.cols.period):-1;
