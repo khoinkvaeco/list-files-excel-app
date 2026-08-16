@@ -672,15 +672,47 @@ function buildTMSLookup(tmsWb,tmsCfg){
   }
   return map;
 }
+/* Tự dò cột file HĐĐT theo TÊN tiêu đề (mỗi nơi xuất một kiểu: 'MST người bán/MST
+   người xuất hàng', 'Trạng thái hóa đơn', 'Tổng tiền thuế'...). Chỉ dùng khi cột cấu
+   hình không tra được -> vẫn tôn trọng cấu hình người dùng nhập tay. */
+const EINV_NAMES={
+  mst:['MST người bán','Mã số thuế người bán','MST người xuất hàng','Mã số thuế người bán/MST'],
+  invoice_no:['Số hóa đơn','Số HĐ'],
+  invoice_date:['Ngày lập','Ngày hóa đơn','Ngày lập hóa đơn'],
+  status:['Trạng thái hóa đơn','Trạng thái HĐ','Trạng thái'],
+  total_tax:['Tổng tiền thuế','Tiền thuế GTGT','Tổng tiền thuế GTGT']
+};
+function einvHeaderRow(mat,cfgRow){
+  // dòng cấu hình có chứa tiêu đề số hóa đơn không? nếu không, dò trong 15 dòng đầu
+  const ok=r=>{const row=mat[r-1]||[];return row.some(c=>{const t=normName(c);return t.includes('so hoa don')||t.includes('ngay lap');});};
+  if(cfgRow>=1&&ok(cfgRow))return cfgRow;
+  for(let r=1;r<=Math.min(15,mat.length);r++)if(ok(r))return r;
+  return cfgRow||1;
+}
+function einvIndex(header,ref,names){
+  // ƯU TIÊN dò theo TÊN tiêu đề (tên cột HĐĐT rất đặc trưng, mỗi nơi xuất khác vị trí);
+  // nếu không tìm thấy tên thì mới dùng cột người dùng cấu hình.
+  const norm=header.map(h=>normName(h));
+  for(const nm of names){const k=normName(nm);
+    let j=norm.findIndex(t=>t===k); if(j>=0)return j;}
+  for(const nm of names){const k=normName(nm);
+    let j=norm.findIndex(t=>t.includes(k)); if(j>=0)return j;}
+  return resolveIndex(header,ref);
+}
 function buildEinvLookup(einvWb,einvCfg){
   const map={};if(!einvWb)return map;
-  const mat=sheetMatrix(einvWb,einvWb.SheetNames[0]);const header=mat[einvCfg.headerRow-1]||[];
+  const mat=sheetMatrix(einvWb,einvWb.SheetNames[0]);
+  const hr=einvHeaderRow(mat,einvCfg.headerRow);
+  const header=mat[hr-1]||[];
   const c=einvCfg.cols;
-  const iMst=resolveIndex(header,c.mst),iNo=resolveIndex(header,c.invoice_no),iDate=resolveIndex(header,c.invoice_date),
-        iSt=resolveIndex(header,c.status),iTax=resolveIndex(header,c.total_tax);
-  for(const row of mat.slice(einvCfg.headerRow)){
+  const iMst=einvIndex(header,c.mst,EINV_NAMES.mst),iNo=einvIndex(header,c.invoice_no,EINV_NAMES.invoice_no),
+        iDate=einvIndex(header,c.invoice_date,EINV_NAMES.invoice_date),
+        iSt=einvIndex(header,c.status,EINV_NAMES.status),iTax=einvIndex(header,c.total_tax,EINV_NAMES.total_tax);
+  map.__meta={hasMst:iMst>=0};   // nếu không tra được cột MST -> đối chiếu theo Số HĐ + Ngày
+  for(const row of mat.slice(hr)){
     const no=stripZeros(iNo>=0?row[iNo]:null);if(!no)continue;
-    const key=baseMST(iMst>=0?row[iMst]:null)+'|'+no+'|'+dkey(parseDate(iDate>=0?row[iDate]:null));
+    const mstPart=iMst>=0?baseMST(row[iMst]):'';
+    const key=mstPart+'|'+no+'|'+dkey(parseDate(iDate>=0?row[iDate]:null));
     map[key]={status:iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'',tax:iTax>=0?parseAmount(row[iTax]):null};
   }
   return map;
@@ -726,7 +758,8 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   const hasEinv=einvWb&&sheetMatrix(einvWb,einvWb.SheetNames[0]).length>1;
   if(hasEinv){
     const einv=buildEinvLookup(einvWb,cfg.einv);
-    for(const r of recs){const e=einv[baseMST(r.mst)+'|'+r.no+'|'+dkey(r.dd)];r.einvStatus=e?e.status:null;r.totalTax=e?e.tax:null;
+    const eHasMst=!(einv.__meta&&einv.__meta.hasMst===false);
+    for(const r of recs){const e=einv[(eHasMst?baseMST(r.mst):'')+'|'+r.no+'|'+dkey(r.dd)];r.einvStatus=e?e.status:null;r.totalTax=e?e.tax:null;
       r.statusGroup=classifyStatus(r.einvStatus,cfg.invoiceStatus,cfg.notFound);}
     // reconcile per hóa đơn
     const inv={};recs.forEach(r=>{const k=r.mst+'|'+r.no+'|'+dkey(r.dd);(inv[k]=inv[k]||{sumVat:0,tax:null,recs:[]});inv[k].sumVat+=r.vat;if(inv[k].tax==null&&r.totalTax!=null)inv[k].tax=r.totalTax;inv[k].recs.push(r);});
