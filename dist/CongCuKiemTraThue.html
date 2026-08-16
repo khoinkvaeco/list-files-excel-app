@@ -719,7 +719,7 @@ function buildEinvLookup(einvWb,einvCfg){
   // __meta: byMstNo = tra theo MST+Số HĐ (bỏ ngày) để cứu HĐ lệch ngày;
   //         minK/maxK = khoảng ngày file HĐĐT thực sự có dữ liệu (để biết HĐ nào NGOÀI kỳ)
   const hn=i=>(i>=0&&header[i]!=null&&String(header[i]).trim()!=='')?String(header[i]).trim():'(không có)';
-  const meta={hasMst:iMst>=0,byMstNo:{},minK:null,maxK:null,
+  const meta={hasMst:iMst>=0,byMstNo:{},minK:null,maxK:null,nRow:0,nDate:0,nStatus:0,
     used:{hdrRow:hr,mst:hn(iMst),no:hn(iNo),date:hn(iDate),status:hn(iSt),tax:hn(iTax)}};
   map.__meta=meta;
   for(const row of mat.slice(hr)){
@@ -729,6 +729,7 @@ function buildEinvLookup(einvWb,einvCfg){
     const rec={status:iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'',tax:iTax>=0?parseAmount(row[iTax]):null};
     map[mstPart+'|'+no+'|'+dkey(dd)]=rec;
     meta.byMstNo[mstPart+'|'+no]=rec;
+    meta.nRow++; if(dd)meta.nDate++; if(rec.status)meta.nStatus++;
     if(dd){const k=dd.y*10000+dd.m*100+dd.d;if(meta.minK==null||k<meta.minK)meta.minK=k;if(meta.maxK==null||k>meta.maxK)meta.maxK=k;}
   }
   return map;
@@ -791,7 +792,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   let einvUsed=null;
   if(hasEinv){
     const einv=buildEinvLookup(einvWb,cfg.einv);
-    const em=einv.__meta||{};einvUsed=em.used||null;const eHasMst=!(em.hasMst===false);
+    const em=einv.__meta||{};einvUsed=em.used?Object.assign({},em.used,{nRow:em.nRow,nDate:em.nDate,nStatus:em.nStatus}):null;const eHasMst=!(em.hasMst===false);
     const FROMK=+String(cfg.einvFrom||'2022-01-01').replace(/-/g,'');
     const OUTR=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT';
     const DMIS=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
@@ -802,8 +803,11 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
         r.einvStatus=null;r.totalTax=null;r.statusGroup=OUTR;continue;
       }
       const base=(eHasMst?baseMST(r.mst):'')+'|'+r.no;
-      let e=einv[base+'|'+dkey(r.dd)],lech=false;
-      if(!e&&em.byMstNo){const e2=em.byMstNo[base];if(e2){e=e2;lech=true;}}
+      // Nếu file HĐĐT không có/không đọc được cột Ngày thì đối chiếu theo MST + Số HĐ
+      // (không coi là 'lệch ngày' vì bản thân HĐĐT không có ngày để so).
+      const eNoDate=!(em.nDate>0);
+      let e=eNoDate?null:einv[base+'|'+dkey(r.dd)],lech=false;
+      if(!e&&em.byMstNo){const e2=em.byMstNo[base];if(e2){e=e2;lech=!eNoDate;}}
       r.einvStatus=e?e.status:null;r.totalTax=e?e.tax:null;
       if(lech){r.statusGroup=DMIS;r.einvNote=DMIS;}
       else if(e){r.statusGroup=classifyStatus(r.einvStatus,cfg.invoiceStatus,cfg.notFound);}
@@ -862,7 +866,10 @@ function buildSheets(recs,origHeader,cfg,meta){
   }
   if(meta.badDates)summary['Dòng ngày HĐ không đọc được (cần sửa tay)']=meta.badDates;
   if(meta.einvUsed){const u=meta.einvUsed;
-    summary['— Cột HĐĐT đã dùng: dòng tiêu đề '+u.hdrRow]='MST: '+u.mst+' | Số HĐ: '+u.no+' | Ngày: '+u.date+' | Trạng thái: '+u.status+' | Tổng tiền thuế: '+u.tax;}
+    summary['— Cột HĐĐT đã dùng: dòng tiêu đề '+u.hdrRow]='MST: '+u.mst+' | Số HĐ: '+u.no
+      +' | Ngày: '+u.date+' (đọc được '+(u.nDate||0)+'/'+(u.nRow||0)+' dòng)'
+      +' | Trạng thái: '+u.status+' (có giá trị '+(u.nStatus||0)+' dòng)'
+      +' | Tổng tiền thuế: '+u.tax;}
 
   const specs=indicatorSpecs(recs,cfg,meta.hasEinv);
   const years=[...new Set(recs.map(r=>r.year).filter(y=>y!=null))].sort();
