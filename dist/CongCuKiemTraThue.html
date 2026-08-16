@@ -373,6 +373,9 @@ const DEF={
      'Hóa đơn điều chỉnh', 'Hóa đơn thay thế', 'Hóa đơn đã bị điều chỉnh' vẫn được kê khai. */
   invoiceStatus:{'Bị thay thế':['đã bị thay thế','bị thay thế'],'Bị xóa bỏ / hủy':['xóa bỏ','xoá bỏ','hủy bỏ','huỷ bỏ']},
   notFound:'Không tìm thấy',
+  einvFrom:'2022-01-01',   // CHỈ dò HĐĐT với hóa đơn từ ngày này trở về sau
+  einvOutRange:'Ngoài kỳ dữ liệu HĐĐT',
+  einvDateMismatch:'Khớp MST + Số HĐ nhưng lệch ngày',
   /* Các kỳ được giảm thuế GTGT (8%) theo NQ/NĐ — mỗi kỳ gắn với 1 sheet danh mục
      hàng hóa/dịch vụ KHÔNG được giảm trong file danh mục đính kèm. */
   reducedPeriods:[['2022-02-01','2022-12-31'],['2023-07-01','2023-12-31'],['2024-01-01','2024-06-30'],['2024-07-01','2024-12-31'],['2025-01-01','2025-06-30'],['2025-07-01','2026-12-31']],
@@ -786,17 +789,22 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   if(hasEinv){
     const einv=buildEinvLookup(einvWb,cfg.einv);
     const em=einv.__meta||{};const eHasMst=!(em.hasMst===false);
+    const FROMK=+String(cfg.einvFrom||'2022-01-01').replace(/-/g,'');
+    const OUTR=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT';
+    const DMIS=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
     for(const r of recs){
+      r.einvNote='';
+      // CHỈ dò hóa đơn từ 01/01/2022 trở về sau; trước đó -> 'Ngoài kỳ dữ liệu HĐĐT'
+      if(!r.dd||(r.dd.y*10000+r.dd.m*100+r.dd.d)<FROMK){
+        r.einvStatus=null;r.totalTax=null;r.statusGroup=OUTR;continue;
+      }
       const base=(eHasMst?baseMST(r.mst):'')+'|'+r.no;
-      let e=einv[base+'|'+dkey(r.dd)];r.einvNote='';
-      if(!e&&em.byMstNo){const e2=em.byMstNo[base];if(e2){e=e2;r.einvNote='khớp MST+Số HĐ (lệch ngày)';}}
+      let e=einv[base+'|'+dkey(r.dd)],lech=false;
+      if(!e&&em.byMstNo){const e2=em.byMstNo[base];if(e2){e=e2;lech=true;}}
       r.einvStatus=e?e.status:null;r.totalTax=e?e.tax:null;
-      if(e){r.statusGroup=classifyStatus(r.einvStatus,cfg.invoiceStatus,cfg.notFound);}
-      else if(r.dd&&em.minK!=null&&(()=>{const k=r.dd.y*10000+r.dd.m*100+r.dd.d;return k<em.minK||k>em.maxK;})()){
-        // Ngày HĐ nằm NGOÀI khoảng dữ liệu mà file HĐĐT có -> chưa tải HĐĐT kỳ này,
-        // không kết luận là "không tìm thấy" để tránh báo động giả.
-        r.statusGroup='Ngoài kỳ dữ liệu HĐĐT';
-      }else{r.statusGroup=cfg.notFound;}
+      if(lech){r.statusGroup=DMIS;r.einvNote=DMIS;}
+      else if(e){r.statusGroup=classifyStatus(r.einvStatus,cfg.invoiceStatus,cfg.notFound);}
+      else{r.statusGroup=cfg.notFound;}
     }
     // reconcile per hóa đơn
     const inv={};recs.forEach(r=>{const k=r.mst+'|'+r.no+'|'+dkey(r.dd);(inv[k]=inv[k]||{sumVat:0,tax:null,recs:[]});inv[k].sumVat+=r.vat;if(inv[k].tax==null&&r.totalTax!=null)inv[k].tax=r.totalTax;inv[k].recs.push(r);});
@@ -818,7 +826,7 @@ function indicatorSpecs(recs,cfg,hasEinv){
   if(recs.some(r=>r.dup))specs.push({label:'Hóa đơn kê khai trùng',test:r=>r.dup,note:'Từ trùng số HĐ + ngày + MST + giá trị chưa thuế'});
   for(const label in cfg.goods){if(recs.some(r=>r.grp.includes(label)))specs.push({label,test:r=>r.grp.includes(label),note:`Từ loại hàng hóa "${label}"`});}
   if(hasEinv){
-    const problem=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound]);
+    const problem=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound,cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT',cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày']);
     const sg=[...new Set(recs.map(r=>r.statusGroup).filter(x=>problem.has(x)))].sort();
     for(const v of sg)specs.push({label:'Hóa đơn '+v,test:r=>r.statusGroup===v,note:'Từ trạng thái hóa đơn điện tử'});
   }
@@ -841,8 +849,11 @@ function buildSheets(recs,origHeader,cfg,meta){
     const nf=new Set(prob.filter(r=>r.statusGroup===cfg.notFound).map(r=>r.mst+'|'+r.no+'|'+dkey(r.dd)));
     summary['HĐ bị thay thế/điều chỉnh/xóa bỏ']=invKeys.size-nf.size;
     summary['HĐ không tìm thấy trên HĐĐT']=nf.size;
-    const outR=new Set(recs.filter(r=>r.statusGroup==='Ngoài kỳ dữ liệu HĐĐT').map(r=>r.mst+'|'+r.no+'|'+dkey(r.dd)));
-    if(outR.size)summary['HĐ ngoài kỳ dữ liệu HĐĐT (chưa tải HĐĐT kỳ này)']=outR.size;
+    const OUTR=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT',DMIS=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
+    const outR=new Set(recs.filter(r=>r.statusGroup===OUTR).map(r=>r.mst+'|'+r.no+'|'+dkey(r.dd)));
+    if(outR.size)summary['HĐ ngoài kỳ dữ liệu HĐĐT (trước '+(cfg.einvFrom||'2022-01-01').split('-').reverse().join('/')+')']=outR.size;
+    const dmis=new Set(recs.filter(r=>r.statusGroup===DMIS).map(r=>r.mst+'|'+r.no));
+    if(dmis.size)summary['HĐ khớp MST + Số HĐ nhưng lệch ngày']=dmis.size;
     const diffInv=new Set(recs.filter(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5).map(r=>r.mst+'|'+r.no+'|'+dkey(r.dd)));
     summary['HĐ có chênh lệch tiền thuế']=diffInv.size;
   }
@@ -923,8 +934,11 @@ function buildSheets(recs,origHeader,cfg,meta){
     sheets['HĐ sai trạng thái']=detail(r=>badStatus.has(r.statusGroup),[['Nhóm trạng thái',r=>r.statusGroup],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
     // HĐ trong bảng kê KHÔNG tìm thấy trên HĐĐT (sheet riêng theo yêu cầu)
     sheets['HĐ không tìm thấy trên HĐĐT']=detail(r=>r.statusGroup===cfg.notFound,[['Kết quả tra HĐĐT',r=>'Không tìm thấy trên HĐĐT (kỳ này HĐĐT CÓ dữ liệu)']]);
-    if(recs.some(r=>r.statusGroup==='Ngoài kỳ dữ liệu HĐĐT'))
-      sheets['HĐ ngoài kỳ dữ liệu HĐĐT']=detail(r=>r.statusGroup==='Ngoài kỳ dữ liệu HĐĐT',[['Kết quả tra HĐĐT',r=>'Ngoài khoảng ngày mà file HĐĐT có dữ liệu']]);
+    const _OUT=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT',_DM=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
+    if(recs.some(r=>r.statusGroup===_OUT))
+      sheets['HĐ ngoài kỳ dữ liệu HĐĐT']=detail(r=>r.statusGroup===_OUT,[['Kết quả tra HĐĐT',r=>_OUT]]);
+    if(recs.some(r=>r.statusGroup===_DM))
+      sheets['HĐ lệch ngày với HĐĐT']=detail(r=>r.statusGroup===_DM,[['Kết quả tra HĐĐT',r=>_DM],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
     sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Chênh lệch (theo HĐ)',r=>r.chenh]]);
   }
   return {sheets,summary};
@@ -1401,7 +1415,7 @@ function getCfg(){
     tms:{headerRow:+$('t_hdr').value||1,mst:$('t_mst').value.trim(),status:$('t_status').value.trim(),close:$('t_close').value.trim()},
     einv:{headerRow:+$('e_hdr').value||1,cols:{mst:$('e_mst').value.trim(),invoice_no:$('e_no').value.trim(),invoice_date:$('e_date').value.trim(),status:$('e_status').value.trim(),total_tax:$('e_tax').value.trim()}},
     risk:DEF.risk,goods:{'Không phục vụ SXKD':linesOf($('kw_sxkd').value),'Quà tặng':linesOf($('kw_qt').value)},
-    invoiceStatus:DEF.invoiceStatus,notFound:DEF.notFound,reducedPeriods:DEF.reducedPeriods,periodSheetHint:DEF.periodSheetHint,exclude:DEF.exclude
+    invoiceStatus:DEF.invoiceStatus,notFound:DEF.notFound,einvFrom:DEF.einvFrom,einvOutRange:DEF.einvOutRange,einvDateMismatch:DEF.einvDateMismatch,reducedPeriods:DEF.reducedPeriods,periodSheetHint:DEF.periodSheetHint,exclude:DEF.exclude
   };
 }
 function saveCfg(){
