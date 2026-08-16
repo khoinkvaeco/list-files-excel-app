@@ -718,7 +718,9 @@ function buildEinvLookup(einvWb,einvCfg){
         iSt=einvIndex(header,c.status,EINV_NAMES.status),iTax=einvIndex(header,c.total_tax,EINV_NAMES.total_tax);
   // __meta: byMstNo = tra theo MST+Số HĐ (bỏ ngày) để cứu HĐ lệch ngày;
   //         minK/maxK = khoảng ngày file HĐĐT thực sự có dữ liệu (để biết HĐ nào NGOÀI kỳ)
-  const meta={hasMst:iMst>=0,byMstNo:{},minK:null,maxK:null};
+  const hn=i=>(i>=0&&header[i]!=null&&String(header[i]).trim()!=='')?String(header[i]).trim():'(không có)';
+  const meta={hasMst:iMst>=0,byMstNo:{},minK:null,maxK:null,
+    used:{hdrRow:hr,mst:hn(iMst),no:hn(iNo),date:hn(iDate),status:hn(iSt),tax:hn(iTax)}};
   map.__meta=meta;
   for(const row of mat.slice(hr)){
     const no=stripZeros(iNo>=0?row[iNo]:null);if(!no)continue;
@@ -786,9 +788,10 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   recs.forEach(r=>{r.dup=!!r.dupTag;});
   // einvoice
   const hasEinv=einvWb&&sheetMatrix(einvWb,einvWb.SheetNames[0]).length>1;
+  let einvUsed=null;
   if(hasEinv){
     const einv=buildEinvLookup(einvWb,cfg.einv);
-    const em=einv.__meta||{};const eHasMst=!(em.hasMst===false);
+    const em=einv.__meta||{};einvUsed=em.used||null;const eHasMst=!(em.hasMst===false);
     const FROMK=+String(cfg.einvFrom||'2022-01-01').replace(/-/g,'');
     const OUTR=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT';
     const DMIS=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
@@ -814,7 +817,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   const vatCats=buildVatCatalog(vatCatWb,cfg.periodSheetHint||[]);
   for(const r of recs){r.check=vatCheck(r.dd,r.pre,r.vat,r.goods,cfg.reducedPeriods,cfg.exclude,vatCats);}
 
-  return buildSheets(recs,origHeader,cfg,{hasEinv,badDates});
+  return buildSheets(recs,origHeader,cfg,{hasEinv,badDates,einvUsed:einvUsed});
 }
 
 /* ---- chỉ tiêu dùng chung cho KQ + Dữ liệu chỉ tiêu ---- */
@@ -858,6 +861,8 @@ function buildSheets(recs,origHeader,cfg,meta){
     summary['HĐ có chênh lệch tiền thuế']=diffInv.size;
   }
   if(meta.badDates)summary['Dòng ngày HĐ không đọc được (cần sửa tay)']=meta.badDates;
+  if(meta.einvUsed){const u=meta.einvUsed;
+    summary['— Cột HĐĐT đã dùng: dòng tiêu đề '+u.hdrRow]='MST: '+u.mst+' | Số HĐ: '+u.no+' | Ngày: '+u.date+' | Trạng thái: '+u.status+' | Tổng tiền thuế: '+u.tax;}
 
   const specs=indicatorSpecs(recs,cfg,meta.hasEinv);
   const years=[...new Set(recs.map(r=>r.year).filter(y=>y!=null))].sort();
