@@ -182,6 +182,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>🧾 File hóa đơn điện tử — tùy chọn</span>
             <input type="file" id="f_einv" accept=".xlsx,.xls,.csv"></label>
         </div>
+        <label class="fld"><span>📕 File danh mục HH-DV KHÔNG được giảm thuế GTGT (theo NĐ) — tùy chọn</span>
+          <input type="file" id="f_vatcat" accept=".xlsx,.xls"></label>
+        <p class="hint">Nạp file danh mục để cột <b>Check 10%, 8%</b> đối chiếu tên mặt hàng với <i>Tên sản phẩm / Nội dung</i> của đúng Nghị định theo ngày hóa đơn: trùng danh mục → 10%, không trùng → 8%.</p>
       </div>
       <div class="card">
         <h2>2️⃣ Chạy kiểm tra</h2>
@@ -366,9 +369,21 @@ const DEF={
         {name:'524 DN',headerRow:4,mst:'A',doc:'Công văn 1798/TCT-TTKT ngày 16/5/2023'}],
   goods:{'Không phục vụ SXKD':['golf','sân golf','gôn','rượu','wine','bia','beer','thuốc lá','cigar','spa','massage'],
          'Quà tặng':['quà','tặng','biếu','quà tặng','quà biếu']},
-  invoiceStatus:{'Bị thay thế':['bị thay thế'],'Bị điều chỉnh':['bị điều chỉnh'],'Bị xóa bỏ / hủy':['xóa bỏ','hủy','huỷ','xoá bỏ']},
+  /* CHỈ bắt HĐ ĐÃ BỊ thay thế / đã bị xóa bỏ, hủy bỏ (loại không được kê khai).
+     'Hóa đơn điều chỉnh', 'Hóa đơn thay thế', 'Hóa đơn đã bị điều chỉnh' vẫn được kê khai. */
+  invoiceStatus:{'Bị thay thế':['đã bị thay thế','bị thay thế'],'Bị xóa bỏ / hủy':['xóa bỏ','xoá bỏ','hủy bỏ','huỷ bỏ']},
   notFound:'Không tìm thấy',
-  reducedPeriods:[['2022-02-01','2022-12-31'],['2023-07-01','2023-12-31'],['2024-01-01','2024-12-31'],['2025-07-01','2026-12-31']],
+  /* Các kỳ được giảm thuế GTGT (8%) theo NQ/NĐ — mỗi kỳ gắn với 1 sheet danh mục
+     hàng hóa/dịch vụ KHÔNG được giảm trong file danh mục đính kèm. */
+  reducedPeriods:[['2022-02-01','2022-12-31'],['2023-07-01','2023-12-31'],['2024-01-01','2024-06-30'],['2024-07-01','2024-12-31'],['2025-01-01','2025-06-30'],['2025-07-01','2026-12-31']],
+  periodSheetHint:[
+    {from:'2022-02-01',to:'2022-12-31',hint:['02 2022','15']},
+    {from:'2023-07-01',to:'2023-12-31',hint:['6m cuối 2023','44']},
+    {from:'2024-01-01',to:'2024-06-30',hint:['6m đầu 2024','94']},
+    {from:'2024-07-01',to:'2024-12-31',hint:['6m cuối 2024','72']},
+    {from:'2025-01-01',to:'2025-06-30',hint:['6m đầu 2025','180']},
+    {from:'2025-07-01',to:'2026-12-31',hint:['07 2025','174']}
+  ],
   exclude:{
     'PL I - Viễn thông':['viễn thông','cước viễn thông'],
     'PL I - Tài chính, ngân hàng':['ngân hàng','tín dụng','cho vay','lãi vay','dịch vụ tài chính'],
@@ -465,10 +480,89 @@ function inReduced(dd,periods){if(!dd)return false;const k=dd.y*10000+dd.m*100+d
 function inferRate(pre,vat){if(!pre)return null;const r=vat/pre;for(const t of [0.10,0.08,0.05,0.0])if(Math.abs(r-t)<0.005)return t;return Math.round(r*10000)/10000;}
 function wordRe(kw){return new RegExp('(?<![\\p{L}\\p{N}])'+escapeRe(kw.toLowerCase())+'(?![\\p{L}\\p{N}])','u');}
 function classifyExcluded(goods,excl){const t=String(goods||'').toLowerCase();if(!t.trim())return '';for(const cat in excl){for(const kw of excl[cat]){if(wordRe(kw).test(t))return cat;}}return '';}
-function vatCheck(dd,pre,vat,goods,periods,excl){
+/* ===== Danh mục HH-DV KHÔNG được giảm thuế GTGT (file NĐ đính kèm) =====
+   Mỗi sheet = 1 Nghị định/kỳ; cột 'Tên sản phẩm' + 'Nội dung' là tên hàng hóa/dịch vụ
+   không được giảm (giữ 10%). Đối chiếu tên mặt hàng trên bảng kê với danh mục này:
+   trùng từ khóa chính -> 10%; không trùng -> 8% (trong kỳ được giảm). */
+const VAT_STOP=new Set(['va','và','hoac','hoặc','cac','các','loai','loại','khac','khác','san','sản','pham','phẩm','dich','dịch','vu','vụ','hang','hàng','hoa','hóa','hoá','cua','của','tu','từ','cho','trong','ngoai','ngoài','theo','co','có','khong','không','duoc','được','tren','trên','duoi','dưới','bang','bằng','voi','với','la','là','mot','một','nay','này','do','đó','den','đến','ke','kể','ca','cả','tinh','tính','chua','chưa','da','đã','se','sẽ','thi','thì','ma','mà','nhu','như','tai','tại','ve','về','boi','bởi','gom','gồm','bao','chi','chỉ','tren','đối','voi','sau','truoc','trước']);
+function vatCatPhrases(text){
+  // tách 1 ô danh mục thành các cụm từ khóa dùng để so khớp
+  const out=[];
+  let s=String(text==null?'':text).replace(/\([^)]*\)/g,' ').trim();
+  if(!s)return out;
+  for(let part of s.split(/[;,\n\/]| - |–|—/)){
+    part=part.replace(/^[\s\d.\-–—]+/,'').replace(/\s+/g,' ').trim().toLowerCase();
+    if(part.length<5)continue;                       // bỏ cụm quá ngắn (dễ khớp bừa)
+    const toks=part.split(/\s+/).filter(w=>w.length>1&&!VAT_STOP.has(w));
+    if(!toks.length)continue;
+    if(toks.length===1&&toks[0].length<5)continue;   // 1 từ ngắn -> bỏ
+    out.push(part);
+  }
+  return out;
+}
+// Dựng danh mục theo từng kỳ: [{from,to,phrases:Set}]
+function buildVatCatalog(wb,periodHints){
+  if(!wb)return null;
+  const norm=s=>stripAccents(String(s||'')).toLowerCase();
+  const cats=[];
+  for(const ph of periodHints){
+    const sn=wb.SheetNames.find(n=>ph.hint.some(h=>norm(n).includes(norm(h))));
+    if(!sn)continue;
+    const mat=sheetMatrix(wb,sn);
+    // dò dòng tiêu đề chứa 'Tên sản phẩm'
+    let hr=-1,iName=-1,iDesc=-1;
+    for(let r=0;r<Math.min(12,mat.length);r++){
+      const row=mat[r]||[];
+      for(let c=0;c<row.length;c++){
+        const t=normName(row[c]);
+        if(t==='ten san pham'){hr=r;iName=c;}
+        if(t==='noi dung'&&hr===r)iDesc=c;
+      }
+      if(hr===r&&iName>=0)break;
+    }
+    if(iName<0){iName=7;iDesc=8;hr=Math.max(hr,2);}   // mặc định cột H / I
+    const phrases=new Set();
+    for(const row of mat.slice(hr+1)){
+      if(!row)continue;
+      for(const idx of [iName,iDesc]){
+        if(idx<0||idx>=row.length)continue;
+        for(const p of vatCatPhrases(row[idx]))phrases.add(p);
+      }
+    }
+    if(phrases.size)cats.push({from:ph.from,to:ph.to,sheet:sn,phrases:[...phrases]});
+  }
+  return cats.length?cats:null;
+}
+function vatCatFor(dd,cats){
+  if(!dd||!cats)return null;
+  const k=dd.y*10000+dd.m*100+dd.d;
+  for(const c of cats){const ks=+c.from.replace(/-/g,''),ke=+c.to.replace(/-/g,'');if(k>=ks&&k<=ke)return c;}
+  return null;
+}
+// Trả về cụm từ khóa khớp (nếu có) giữa tên mặt hàng và danh mục không được giảm
+function vatCatMatch(goods,cat){
+  const t=String(goods||'').toLowerCase().replace(/\s+/g,' ').trim();
+  if(!t||!cat)return '';
+  for(const p of cat.phrases){if(t.includes(p))return p;}
+  return '';
+}
+function vatCheck(dd,pre,vat,goods,periods,excl,cats){
   const rate=inferRate(pre,vat);if(rate==null)return '';
-  const ex=classifyExcluded(goods,excl),red=inReduced(dd,periods);
+  const red=inReduced(dd,periods);
   const is10=Math.abs(rate-0.10)<0.005,is8=Math.abs(rate-0.08)<0.005;
+  // Ưu tiên danh mục NĐ (nếu đã nạp file danh mục) — chỉ xét khi HĐ nằm trong kỳ giảm
+  const cat=red?vatCatFor(dd,cats):null;
+  if(cat){
+    const hit=vatCatMatch(goods,cat);
+    if(hit){  // có trong danh mục KHÔNG được giảm -> phải 10%
+      if(is10)return `10% - đúng (không được giảm: "${hit}")`;
+      if(is8)return `8% - SAI: thuộc DM không được giảm ("${hit}") phải 10%`;
+    }else{    // không thuộc danh mục -> được giảm còn 8%
+      if(is8)return '8% - đúng (được giảm theo NĐ)';
+      if(is10)return '10% - SAI: được giảm, phải 8%';
+    }
+  }
+  const ex=classifyExcluded(goods,excl);
   if(ex){if(is8)return `8% - rà lại: nhóm không được giảm? (${ex})`;if(is10)return `10% - nhóm không được giảm (${ex})`;}
   if(is10)return red?'10% - rà lại (đang kỳ giảm, có thể phải 8%)':'10% - đúng';
   if(is8)return red?'8% - đúng kỳ giảm':'8% - SAI: ngoài kỳ giảm, phải 10%';
@@ -592,13 +686,14 @@ function buildEinvLookup(einvWb,einvCfg){
   return map;
 }
 
-function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg){
+function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   const mat=sheetMatrix(mainWb,mainSheet);
   const header=mat[cfg.main.headerRow-1]||[];
   const ci={};for(const k in cfg.main.cols)ci[k]=resolveIndex(header,cfg.main.cols[k]);
   const missing=Object.keys(ci).filter(k=>k!=='period'&&k!=='seller'&&ci[k]<0);
   if(missing.length)throw new Error('Không tìm thấy cột: '+missing.join(', ')+'. Kiểm tra lại Dòng tiêu đề / tên cột.');
-  const origHeader=header.slice(0,20);
+  // giữ đúng 20 cột gốc (đệm cho khớp với dòng dữ liệu cũng đệm 20) -> tiêu đề không lệch cột
+  const origHeader=header.slice(0,20);while(origHeader.length<20)origHeader.push('');
   const iPeriod=(cfg.main.cols.period&&String(cfg.main.cols.period).trim())?resolveIndex(header,cfg.main.cols.period):-1;
   const recs=[];
   for(const row of mat.slice(cfg.main.headerRow)){
@@ -637,8 +732,9 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg){
     const inv={};recs.forEach(r=>{const k=r.mst+'|'+r.no+'|'+dkey(r.dd);(inv[k]=inv[k]||{sumVat:0,tax:null,recs:[]});inv[k].sumVat+=r.vat;if(inv[k].tax==null&&r.totalTax!=null)inv[k].tax=r.totalTax;inv[k].recs.push(r);});
     for(const k in inv){const o=inv[k];const ch=(o.tax==null)?null:Math.round(o.tax-o.sumVat);o.recs.forEach(r=>{r.chenh=ch;});}
   }
-  // check thuế suất
-  for(const r of recs){r.check=vatCheck(r.dd,r.pre,r.vat,r.goods,cfg.reducedPeriods,cfg.exclude);}
+  // check thuế suất (kết hợp danh mục HH-DV không được giảm theo từng NĐ nếu có)
+  const vatCats=buildVatCatalog(vatCatWb,cfg.periodSheetHint||[]);
+  for(const r of recs){r.check=vatCheck(r.dd,r.pre,r.vat,r.goods,cfg.reducedPeriods,cfg.exclude,vatCats);}
 
   return buildSheets(recs,origHeader,cfg,{hasEinv,badDates});
 }
@@ -700,11 +796,11 @@ function buildSheets(recs,origHeader,cfg,meta){
   sheets['Dữ liệu chỉ tiêu']=di;
 
   /* Bảng kê đã xử lý: A-T gốc + U-AC */
-  const uac=['Loại hàng hóa','Trạng thái','Ngày liên quan','Hóa đơn rủi ro','Kê khai trùng','Tra HĐĐT','Tiền thuế trên HĐĐT','Chênh lệch với BK','Check 10%, 8%'];
+  const uac=['Loại hàng hóa','Trạng thái','Ngày liên quan','Hóa đơn rủi ro','Kê khai trùng','Tra HĐĐT','Tổng tiền thuế (HĐĐT)','Chênh lệch tiền thuế','Check 10%, 8%'];
   const bxl=[origHeader.concat(uac)];
   for(const r of recs){
     const base=r.row.slice(0,20);while(base.length<20)base.push(null);
-    const ab=(r.totalTax!=null)?Math.round(r.totalTax-r.vat):'';
+    const ab=(r.chenh!=null)?r.chenh:'';  // chênh lệch tính theo TỪNG HÓA ĐƠN (BK là theo dòng)
     bxl.push(base.concat([r.grp,r.statusNNT||'',r.close?ddmy(r.close):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
   }
   sheets['Bảng kê đã xử lý']=bxl;
@@ -1231,7 +1327,7 @@ function getCfg(){
     tms:{headerRow:+$('t_hdr').value||1,mst:$('t_mst').value.trim(),status:$('t_status').value.trim(),close:$('t_close').value.trim()},
     einv:{headerRow:+$('e_hdr').value||1,cols:{mst:$('e_mst').value.trim(),invoice_no:$('e_no').value.trim(),invoice_date:$('e_date').value.trim(),status:$('e_status').value.trim(),total_tax:$('e_tax').value.trim()}},
     risk:DEF.risk,goods:{'Không phục vụ SXKD':linesOf($('kw_sxkd').value),'Quà tặng':linesOf($('kw_qt').value)},
-    invoiceStatus:DEF.invoiceStatus,notFound:DEF.notFound,reducedPeriods:DEF.reducedPeriods,exclude:DEF.exclude
+    invoiceStatus:DEF.invoiceStatus,notFound:DEF.notFound,reducedPeriods:DEF.reducedPeriods,periodSheetHint:DEF.periodSheetHint,exclude:DEF.exclude
   };
 }
 function saveCfg(){
@@ -1291,7 +1387,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 });
 
 /* ---- Tải file (audit) ---- */
-const F={main:null,tms:null,risk:null,einv:null};
+const F={main:null,tms:null,risk:null,einv:null,vatcat:null};
 async function onFile(inp,key,afterMain){
   const f=inp.files[0];if(!f){F[key]=null;if(afterMain){$('mainSheetWrap').style.display='none';}return;}
   try{const wb=await readWB(f);F[key]={file:f,wb};
@@ -1305,6 +1401,7 @@ $('f_main').onchange=e=>onFile(e.target,'main',true);
 $('f_tms').onchange=e=>onFile(e.target,'tms');
 $('f_risk').onchange=e=>onFile(e.target,'risk');
 $('f_einv').onchange=e=>onFile(e.target,'einv');
+$('f_vatcat').onchange=e=>onFile(e.target,'vatcat');
 
 let RESULT=null;
 $('btnRun').onclick=()=>{
@@ -1314,7 +1411,7 @@ $('btnRun').onclick=()=>{
     try{
       const cfg=getCfg();
       const sheetName=$('mainSheet').value||F.main.wb.SheetNames[0];
-      RESULT=runAudit(F.main.wb,sheetName,F.tms&&F.tms.wb,F.risk&&F.risk.wb,F.einv&&F.einv.wb,cfg);
+      RESULT=runAudit(F.main.wb,sheetName,F.tms&&F.tms.wb,F.risk&&F.risk.wb,F.einv&&F.einv.wb,cfg,F.vatcat&&F.vatcat.wb);
       $('auditMsg').innerHTML='';renderResult();
     }catch(err){$('auditMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';RESULT=null;}
   },30);
