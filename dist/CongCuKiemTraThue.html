@@ -690,14 +690,19 @@ function einvHeaderRow(mat,cfgRow){
   return cfgRow||1;
 }
 function einvIndex(header,ref,names){
-  // ƯU TIÊN dò theo TÊN tiêu đề (tên cột HĐĐT rất đặc trưng, mỗi nơi xuất khác vị trí);
-  // nếu không tìm thấy tên thì mới dùng cột người dùng cấu hình.
+  // TÔN TRỌNG cấu hình của người dùng trước: nếu cột đã cấu hình có tiêu đề ĐÚNG loại
+  // thì dùng luôn. Chỉ khi cột cấu hình rõ ràng sai loại (vd trỏ vào 'Tên người bán'
+  // trong khi cần MST) mới tự dò theo tên tiêu đề.
   const norm=header.map(h=>normName(h));
-  for(const nm of names){const k=normName(nm);
-    let j=norm.findIndex(t=>t===k); if(j>=0)return j;}
-  for(const nm of names){const k=normName(nm);
-    let j=norm.findIndex(t=>t.includes(k)); if(j>=0)return j;}
-  return resolveIndex(header,ref);
+  const fits=i=>{if(i<0||i>=norm.length)return false;const t=norm[i];if(!t)return false;
+    return names.some(nm=>t.includes(normName(nm)));};
+  const cfgIdx=resolveIndex(header,ref);
+  if(fits(cfgIdx))return cfgIdx;                       // cấu hình của bạn đúng -> dùng
+  for(const nm of names){const k=normName(nm);         // dò theo tên: khớp chính xác
+    const j=norm.findIndex(t=>t===k); if(j>=0)return j;}
+  for(const nm of names){const k=normName(nm);         // rồi khớp chứa
+    const j=norm.findIndex(t=>t.includes(k)); if(j>=0)return j;}
+  return cfgIdx;                                       // không dò được -> giữ cấu hình
 }
 function buildEinvLookup(einvWb,einvCfg){
   const map={};if(!einvWb)return map;
