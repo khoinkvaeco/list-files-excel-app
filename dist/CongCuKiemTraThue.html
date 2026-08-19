@@ -160,6 +160,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <div class="tabs">
       <button class="tab on" data-tab="audit">🔍 Kiểm tra bảng kê</button>
       <button class="tab" data-tab="xml">🔄 XML hóa đơn → Excel</button>
+      <button class="tab" data-tab="xmldecl">📊 Tổng hợp tờ khai XML</button>
       <button class="tab" data-tab="merge">📁 Gộp file Excel</button>
       <button class="tab" data-tab="npt">👪 Kiểm tra NPT</button>
     </div>
@@ -208,17 +209,32 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         <p class="muted">Hỗ trợ 2 loại: XML <b>hóa đơn điện tử</b> (chuẩn TCT) và XML <b>tờ khai thuế HTKK</b> (vd 05/QTT-TNCN) — tờ khai được tách thành nhiều sheet: ToKhaiChinh, ThongTinChung và từng bảng kê/phụ lục với tên cột tiếng Việt.</p>
         <label class="fld"><span>📎 File XML (chọn nhiều file)</span>
           <input type="file" id="f_xml" accept=".xml" multiple></label>
-        <label class="fld" style="flex-direction:row;align-items:center;gap:6px;margin:6px 0">
-          <input type="checkbox" id="xml_merge" checked style="width:auto">
-          <span>📊 Tổng hợp nhiều tờ khai vào 1 bảng (sheet <b>Tổng hợp tờ khai</b> + <b>Chi tiết</b>) thay vì mỗi file một bộ sheet</span>
-        </label>
         <button class="btn pri" id="btnXml" disabled>🔄 Chuyển sang Excel</button>
+        <p class="hint">Muốn <b>tổng hợp nhiều tờ khai vào 1 bảng</b> (mỗi tờ khai 1 dòng)? Dùng tab <b>📊 Tổng hợp tờ khai XML</b>.</p>
         <div id="xmlMsg"></div>
         <div id="xmlResult" style="display:none">
           <div class="metrics" id="xmlMetrics"></div>
           <button class="btn pri" id="btnXmlDl">⬇️ Tải file Excel</button>
           <div class="subtabs" id="xmlTabs"></div>
           <div class="tblwrap" style="margin-top:10px" id="xmlPreview"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB TỔNG HỢP TỜ KHAI XML -->
+    <section id="tab-xmldecl" style="display:none">
+      <div class="card">
+        <h2>Tổng hợp nhiều tờ khai XML (HTKK) vào 1 bảng Excel</h2>
+        <p class="muted">Chọn nhiều file XML <b>tờ khai thuế HTKK</b> (vd 01/NTNN, 05/QTT-TNCN…) — mỗi tờ khai gộp thành <b>1 dòng</b> ở sheet tổng hợp, mỗi dòng bảng kê thành <b>1 dòng</b> ở sheet chi tiết. Không dùng cho XML hóa đơn điện tử.</p>
+        <label class="fld"><span>📎 File XML tờ khai (chọn nhiều file)</span>
+          <input type="file" id="f_xmldecl" accept=".xml" multiple></label>
+        <button class="btn pri" id="btnXmlDecl" disabled>📊 Tổng hợp sang Excel</button>
+        <div id="xmldeclMsg"></div>
+        <div id="xmldeclResult" style="display:none">
+          <div class="metrics" id="xmldeclMetrics"></div>
+          <button class="btn pri" id="btnXmlDeclDl">⬇️ Tải file Excel</button>
+          <div class="subtabs" id="xmldeclTabs"></div>
+          <div class="tblwrap" style="margin-top:10px" id="xmldeclPreview"></div>
         </div>
       </div>
     </section>
@@ -1537,7 +1553,7 @@ $('btnMergeSaveCfg').onclick=()=>{cfg2Save();flashNote('mergeCfgNote');};
 /* Tabs */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
-  ['audit','xml','merge','npt'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
+  ['audit','xml','xmldecl','merge','npt'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
 });
 
 /* ---- Tải file (audit) ---- */
@@ -1606,13 +1622,11 @@ $('btnXml').onclick=async()=>{
   try{
     const invCols=['Ký hiệu mẫu số','Ký hiệu hóa đơn','Số hóa đơn','Ngày lập','MST người bán','Tên người bán','MST người mua','Tên người mua','Tổng tiền chưa thuế','Tổng tiền thuế','Tổng tiền thanh toán','Trạng thái hóa đơn','Tên hàng hóa'];
     const itemCols=['Số hóa đơn','MST người bán','STT','Tên hàng hóa','Đơn vị tính','Số lượng','Đơn giá','Thành tiền','Thuế suất'];
-    let inv=[],items=[];const formSheets={};const decls=[];
-    const mergeMode=$('xml_merge').checked;
+    let inv=[],items=[];const formSheets={};
     for(const f of files){
       const text=await f.text();
       const r=parseInvoiceXML(text);
       if(r.found){inv=inv.concat(r.inv);items=items.concat(r.items);}
-      else if(mergeMode){decls.push({name:f.name,text});}
       else{
         // không phải hóa đơn -> chuyển theo dạng TỜ KHAI THUẾ (nhiều sheet)
         const ts=buildTaxSheets(text);
@@ -1621,7 +1635,6 @@ $('btnXml').onclick=async()=>{
     }
     const sheets={};
     if(inv.length){sheets['Hóa đơn']=[invCols].concat(inv);if(items.length)sheets['Chi tiết hàng hóa']=[itemCols].concat(items);}
-    if(decls.length)Object.assign(sheets,buildDeclSummary(decls));
     Object.assign(sheets,formSheets);
     if(!Object.keys(sheets).length)throw new Error('Không trích xuất được dữ liệu từ XML.');
     XMLRES=sheets;$('xmlMsg').innerHTML='';$('xmlResult').style.display='block';
@@ -1638,6 +1651,32 @@ $('btnXml').onclick=async()=>{
   }catch(err){$('xmlMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';}
 };
 $('btnXmlDl').onclick=()=>{if(XMLRES)writeWB(XMLRES,'chuyen_doi_tu_xml.xlsx');};
+
+/* ---- Tab riêng: Tổng hợp tờ khai XML ---- */
+let XMLDECLRES=null;
+$('f_xmldecl').onchange=e=>{$('btnXmlDecl').disabled=!e.target.files.length;};
+$('btnXmlDecl').onclick=async()=>{
+  const files=[...$('f_xmldecl').files];if(!files.length)return;
+  $('xmldeclMsg').innerHTML='<div class="muted">Đang xử lý…</div>';
+  try{
+    const decls=[];
+    for(const f of files){decls.push({name:f.name,text:await f.text()});}
+    const sheets=buildDeclSummary(decls);
+    if(!Object.keys(sheets).length)throw new Error('Không trích xuất được tờ khai nào từ các file XML đã chọn.');
+    XMLDECLRES=sheets;$('xmldeclMsg').innerHTML='';$('xmldeclResult').style.display='block';
+    const names=Object.keys(sheets);
+    const th=sheets['Tổng hợp tờ khai'],ct=sheets['Chi tiết'];
+    $('xmldeclMetrics').innerHTML=
+      `<div class="metric"><div class="k">Số tờ khai</div><div class="v">${th?th.length-1:0}</div></div>`+
+      `<div class="metric"><div class="k">Số dòng chi tiết</div><div class="v">${ct?ct.length-1:0}</div></div>`;
+    const tabs=$('xmldeclTabs');tabs.innerHTML='';
+    names.forEach((n,i)=>{const b=document.createElement('button');b.className='subtab'+(i===0?' on':'');b.textContent=n;
+      b.onclick=()=>{document.querySelectorAll('#xmldeclTabs .subtab').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderTable($('xmldeclPreview'),sheets[n],400);};
+      tabs.appendChild(b);});
+    renderTable($('xmldeclPreview'),sheets[names[0]],400);
+  }catch(err){$('xmldeclMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';}
+};
+$('btnXmlDeclDl').onclick=()=>{if(XMLDECLRES)writeWB(XMLDECLRES,'tong_hop_to_khai.xlsx');};
 
 /* ---- Merge tab ---- */
 $('f_merge').onchange=e=>{$('btnMerge').disabled=!e.target.files.length;};
