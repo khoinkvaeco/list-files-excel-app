@@ -208,6 +208,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         <p class="muted">Hỗ trợ 2 loại: XML <b>hóa đơn điện tử</b> (chuẩn TCT) và XML <b>tờ khai thuế HTKK</b> (vd 05/QTT-TNCN) — tờ khai được tách thành nhiều sheet: ToKhaiChinh, ThongTinChung và từng bảng kê/phụ lục với tên cột tiếng Việt.</p>
         <label class="fld"><span>📎 File XML (chọn nhiều file)</span>
           <input type="file" id="f_xml" accept=".xml" multiple></label>
+        <label class="fld" style="flex-direction:row;align-items:center;gap:6px;margin:6px 0">
+          <input type="checkbox" id="xml_merge" checked style="width:auto">
+          <span>📊 Tổng hợp nhiều tờ khai vào 1 bảng (sheet <b>Tổng hợp tờ khai</b> + <b>Chi tiết</b>) thay vì mỗi file một bộ sheet</span>
+        </label>
         <button class="btn pri" id="btnXml" disabled>🔄 Chuyển sang Excel</button>
         <div id="xmlMsg"></div>
         <div id="xmlResult" style="display:none">
@@ -1013,6 +1017,56 @@ const FIELD_LABELS={maDVu:'Mã dịch vụ',tenDVu:'Tên dịch vụ',pbanDVu:'P
 const COL_LABELS_051={coDieuChinhSoLieu:'Có điều chỉnh số liệu',ct07:'Họ và tên',ct08:'Mã số thuế',ct09a_ma:'Mã loại giấy tờ',ct09a_ten:'Loại giấy tờ',ct09:'Số CMND/CCCD/Hộ chiếu',ct10:'Cá nhân uỷ quyền QT thay',ct11:'CN nước ngoài uỷ quyền QT <12 tháng',ct12:'Thu nhập chịu thuế',ct13:'TNCT trước điều chuyển',ct14:'TNCT miễn theo Hiệp định',ct15:'TNCT miễn theo HĐ dầu khí',ct16:'Số lượng NPT giảm trừ',ct17:'Tổng giảm trừ gia cảnh',ct18:'Từ thiện, nhân đạo, khuyến học',ct19:'Bảo hiểm được trừ',ct20:'Quỹ hưu trí tự nguyện được trừ',ct21:'Thu nhập tính thuế',ct22:'Số thuế TNCN đã khấu trừ',ct23:'Số thuế đã khấu trừ trước điều chuyển',ct24:'Tổng số thuế phải nộp',ct25:'Số thuế đã nộp thừa',ct26:'Số thuế còn phải nộp',ct27:'Được miễn thuế còn phải nộp ≤50.000đ'};
 const COL_LABELS_052={coDieuChinhSoLieu:'Có điều chỉnh số liệu',ct07:'Họ và tên',ct08:'Mã số thuế',ct09a_ma:'Mã loại giấy tờ',ct09a_ten:'Loại giấy tờ',ct09:'Số CMND/CCCD/Hộ chiếu',ct10:'Cá nhân không cư trú',ct11:'Thu nhập chịu thuế',ct12:'TNCT được miễn theo Hiệp định',ct13:'TNCT được miễn theo HĐ dầu khí',ct14:'Thu nhập tính thuế',ct15:'Số thuế TNCN đã khấu trừ',ct16:'Được miễn thuế còn phải nộp ≤50.000đ'};
 const COL_LABELS_053={ct07:'Họ và tên NNT',ct08:'Mã số thuế NNT',ct09:'Họ và tên người phụ thuộc',ct10:'Ngày sinh NPT',ct11:'Mã số thuế NPT',ct12_ma:'Mã quan hệ',ct12_ten:'Quan hệ với NNT',ct13:'Số CMND/CCCD/Hộ chiếu NPT',ct14_ma:'Mã loại giấy tờ',ct14_ten:'Loại giấy tờ NPT',ct15:'Thời điểm bắt đầu tính giảm trừ',ct16:'Thời điểm kết thúc tính giảm trừ'};
+const COL_LABELS_NTNN={ct1:'Nội dung giao dịch',ct2:'Ghi chú',ct3:'Số hợp đồng/hóa đơn',ct4:'Doanh thu chưa thuế',ct5:'Ngày thanh toán',ct6:'GTGT - DT tính thuế',ct7:'GTGT - Tỷ lệ %',ct8:'GTGT - Miễn giảm',ct9:'GTGT - Thuế phải nộp',ct10:'TNDN - DT tính thuế',ct11:'TNDN - Tỷ lệ %',ct12:'TNDN - Miễn giảm',ct13:'TNDN - Thuế phải nộp',ct14:'Tổng thuế phải nộp'};
+const TOTAL_LABELS={tong_ct6:'Tổng GTGT - DT tính thuế',tong_ct9:'Tổng GTGT - Thuế phải nộp',tong_ct10:'Tổng TNDN - DT tính thuế',tong_ct12:'Tổng TNDN - Miễn giảm',tong_ct13:'Tổng TNDN - Thuế phải nộp',tong_ct14:'TỔNG THUẾ PHẢI NỘP',tongThueVietBangChu:'Tổng thuế bằng chữ',kyKKhai:'Kỳ kê khai',kyKKhaiTuNgay:'Kỳ từ ngày',kyKKhaiDenNgay:'Kỳ đến ngày',nguoiKy:'Người ký',dchiNNT:'Địa chỉ NNT'};
+/* Bỏ khối chữ ký số khi tổng hợp (không đưa base64 vào Excel) */
+function stripSignature(root){
+  const rm=Array.from(root.getElementsByTagName('*')).filter(n=>{const t=xmlLocal(n.tagName);return t==='CKyDTu'||t==='Signature';});
+  rm.forEach(n=>{if(n.parentNode)n.parentNode.removeChild(n);});
+}
+/* Gom TẤT CẢ thẻ lá trong 1 dòng chi tiết (kể cả lồng trong ThueGTGT/ThueTNDN) */
+function deepLeaves(node,out){
+  const kids=xChildren(node);
+  if(!kids.length){const v=(node.textContent||'').trim();if(v)out[xmlLocal(node.tagName)]=v;return out;}
+  for(const c of kids)deepLeaves(c,out);
+  return out;
+}
+const SKIP_LEAF=/^(DigestValue|SignatureValue|X509Certificate|X509SubjectName|Modulus|Exponent|ttinNhaCCapDVu)$/;
+/* Kết xuất NHIỀU tờ khai XML -> 1 file Excel: sheet 'Tổng hợp tờ khai' + 'Chi tiết' */
+function buildDeclSummary(items){
+  const infoKeys=['Tên file'],detKeys=[],infos=[],dets=[];
+  for(const it of items){
+    const doc=new DOMParser().parseFromString(it.text,'application/xml');
+    if(doc.querySelector('parsererror'))continue;
+    const root=doc.documentElement;stripSignature(root);
+    const rowSet=new Set(),tables=[];collectTablesX(root,tables,rowSet);
+    const fields=[];leafValuesX(root,'',fields,rowSet);
+    const info={'Tên file':it.name};
+    for(const f of fields){const leaf=f.path.split('/').pop();
+      if(SKIP_LEAF.test(leaf))continue;
+      const lbl=FIELD_LABELS[leaf]||TOTAL_LABELS[leaf]||leaf;
+      if(!(lbl in info))info[lbl]=maybeNumber(f.value);}
+    let nDet=0;
+    for(const t of tables){
+      for(const r of t.rows){
+        const flat=deepLeaves(r,{});
+        if(!Object.keys(flat).length)continue;
+        nDet++;
+        const d={'Tên file':it.name,'Mã số thuế':info['Mã số thuế']||'','Tên người nộp thuế':info['Tên người nộp thuế']||'',
+                 'Kỳ kê khai':info['Kỳ kê khai']||'','Bảng kê':t.title};
+        for(const k in flat){const lbl=COL_LABELS_NTNN[k]||(colLabelMap(t.title)||{})[k]||k;d[lbl]=maybeNumber(flat[k]);}
+        dets.push(d);for(const k in d)if(!detKeys.includes(k))detKeys.push(k);
+      }
+    }
+    info['Số dòng chi tiết']=nDet;
+    infos.push(info);for(const k in info)if(!infoKeys.includes(k))infoKeys.push(k);
+  }
+  const toAoa=(keys,rows)=>[keys].concat(rows.map(r=>keys.map(k=>r[k]===undefined?'':r[k])));
+  const out={};
+  if(infos.length)out['Tổng hợp tờ khai']=toAoa(infoKeys,infos);
+  if(dets.length)out['Chi tiết']=toAoa(detKeys,dets);
+  return out;
+}
 function colLabelMap(t){if(t.includes('05_1'))return COL_LABELS_051;if(t.includes('05_2'))return COL_LABELS_052;if(t.includes('05_3'))return COL_LABELS_053;return null;}
 const xChildren=n=>Array.from(n.childNodes).filter(x=>x.nodeType===1);
 function repeatedChildName(node){
@@ -1028,7 +1082,7 @@ function isRowLike(node){return xChildren(node).some(g=>/^ct\d+/i.test(xmlLocal(
 // với tờ khai chính (CTieuChinh cũng chứa các thẻ ct..).
 function tableRowsOf(node){
   const t=xmlLocal(node.tagName);
-  if(!/(05[_-]?[123])|(bk.?qtt)|(bke)/i.test(t))return null;
+  if(!/(05[_-]?[123])|(bk.?qtt)|(bke)|^bk/i.test(t))return null;   // ^bk: bảng kê (vd BKThueNTNN)
   const kids=xChildren(node).filter(c=>xChildren(c).length>0);
   const byTag={};for(const k of kids){const n=xmlLocal(k.tagName);(byTag[n]=byTag[n]||[]).push(k);}
   let best=null,mx=0;
@@ -1552,11 +1606,13 @@ $('btnXml').onclick=async()=>{
   try{
     const invCols=['Ký hiệu mẫu số','Ký hiệu hóa đơn','Số hóa đơn','Ngày lập','MST người bán','Tên người bán','MST người mua','Tên người mua','Tổng tiền chưa thuế','Tổng tiền thuế','Tổng tiền thanh toán','Trạng thái hóa đơn','Tên hàng hóa'];
     const itemCols=['Số hóa đơn','MST người bán','STT','Tên hàng hóa','Đơn vị tính','Số lượng','Đơn giá','Thành tiền','Thuế suất'];
-    let inv=[],items=[];const formSheets={};
+    let inv=[],items=[];const formSheets={};const decls=[];
+    const mergeMode=$('xml_merge').checked;
     for(const f of files){
       const text=await f.text();
       const r=parseInvoiceXML(text);
       if(r.found){inv=inv.concat(r.inv);items=items.concat(r.items);}
+      else if(mergeMode){decls.push({name:f.name,text});}
       else{
         // không phải hóa đơn -> chuyển theo dạng TỜ KHAI THUẾ (nhiều sheet)
         const ts=buildTaxSheets(text);
@@ -1565,6 +1621,7 @@ $('btnXml').onclick=async()=>{
     }
     const sheets={};
     if(inv.length){sheets['Hóa đơn']=[invCols].concat(inv);if(items.length)sheets['Chi tiết hàng hóa']=[itemCols].concat(items);}
+    if(decls.length)Object.assign(sheets,buildDeclSummary(decls));
     Object.assign(sheets,formSheets);
     if(!Object.keys(sheets).length)throw new Error('Không trích xuất được dữ liệu từ XML.');
     XMLRES=sheets;$('xmlMsg').innerHTML='';$('xmlResult').style.display='block';
