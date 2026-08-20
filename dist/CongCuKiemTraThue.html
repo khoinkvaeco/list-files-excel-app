@@ -160,7 +160,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <div class="tabs">
       <button class="tab on" data-tab="audit">🔍 Kiểm tra bảng kê</button>
       <button class="tab" data-tab="xml">🔄 XML hóa đơn → Excel</button>
-      <button class="tab" data-tab="xmldecl">📊 Tổng hợp tờ khai XML</button>
+      <button class="tab" data-tab="xmldecl">📊 Tổng hợp tờ khai thuế nhà thầu NN</button>
+      <button class="tab" data-tab="tt103">🧮 Kiểm tra tỷ lệ % TT103 (NTNN)</button>
       <button class="tab" data-tab="merge">📁 Gộp file Excel</button>
       <button class="tab" data-tab="npt">👪 Kiểm tra NPT</button>
     </div>
@@ -210,7 +211,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         <label class="fld"><span>📎 File XML (chọn nhiều file)</span>
           <input type="file" id="f_xml" accept=".xml" multiple></label>
         <button class="btn pri" id="btnXml" disabled>🔄 Chuyển sang Excel</button>
-        <p class="hint">Muốn <b>tổng hợp nhiều tờ khai vào 1 bảng</b> (mỗi tờ khai 1 dòng)? Dùng tab <b>📊 Tổng hợp tờ khai XML</b>.</p>
+        <p class="hint">Muốn <b>tổng hợp nhiều tờ khai vào 1 bảng</b> (mỗi tờ khai 1 dòng)? Dùng tab <b>📊 Tổng hợp tờ khai thuế nhà thầu NN</b>.</p>
         <div id="xmlMsg"></div>
         <div id="xmlResult" style="display:none">
           <div class="metrics" id="xmlMetrics"></div>
@@ -224,7 +225,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <!-- TAB TỔNG HỢP TỜ KHAI XML -->
     <section id="tab-xmldecl" style="display:none">
       <div class="card">
-        <h2>Tổng hợp nhiều tờ khai XML (HTKK) vào 1 bảng Excel</h2>
+        <h2>Tổng hợp nhiều tờ khai thuế nhà thầu nước ngoài (01/NTNN) vào 1 bảng Excel</h2>
         <p class="muted">Chọn nhiều file XML <b>tờ khai thuế HTKK</b> (vd 01/NTNN, 05/QTT-TNCN…) — mỗi tờ khai gộp thành <b>1 dòng</b> ở sheet tổng hợp, mỗi dòng bảng kê thành <b>1 dòng</b> ở sheet chi tiết. Không dùng cho XML hóa đơn điện tử.</p>
         <label class="fld"><span>📎 File XML tờ khai (chọn nhiều file)</span>
           <input type="file" id="f_xmldecl" accept=".xml" multiple></label>
@@ -235,6 +236,27 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <button class="btn pri" id="btnXmlDeclDl">⬇️ Tải file Excel</button>
           <div class="subtabs" id="xmldeclTabs"></div>
           <div class="tblwrap" style="margin-top:10px" id="xmldeclPreview"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB KIỂM TRA TỶ LỆ % TT103 -->
+    <section id="tab-tt103" style="display:none">
+      <div class="card">
+        <h2>Kiểm tra tỷ lệ % thuế NTNN theo phương pháp trực tiếp (TT 103/2014/TT-BTC)</h2>
+        <p class="muted">Chọn nhiều file XML tờ khai <b>01/NTNN</b> — công cụ phân loại <b>Nội dung giao dịch</b> theo từ khóa để suy ra tỷ lệ % GTGT/TNDN đúng theo TT 103/2014/TT-BTC, so với tỷ lệ % đã kê khai. Đây là công cụ <b>rà soát theo từ khóa</b>, kết quả cần người có chuyên môn xác nhận lại bản chất giao dịch.</p>
+        <ul class="hint">
+          <li><b>GTGT:</b> Phân phối, cung cấp hàng hóa 1% · Sản xuất/vận tải/dịch vụ gắn hàng hóa/xây dựng có bao thầu NVL 3% · Dịch vụ, xây dựng không bao thầu NVL 5% · Kinh doanh khác 2%</li>
+          <li><b>TNDN:</b> Chuyển nhượng chứng khoán, hoa hồng nhượng tái bảo hiểm 0,1% · Kinh doanh thương mại, phân phối hàng hóa 1% · Xây dựng, vận tải, sản xuất, kinh doanh khác 2% · Dịch vụ, cho thuê máy móc thiết bị, bảo hiểm, lãi vay 5% · Quản lý nhà hàng, khách sạn, casino, bản quyền 10%</li>
+        </ul>
+        <label class="fld"><span>📎 File XML tờ khai 01/NTNN (chọn nhiều file)</span>
+          <input type="file" id="f_tt103" accept=".xml" multiple></label>
+        <button class="btn pri" id="btnTT103" disabled>🧮 Kiểm tra tỷ lệ %</button>
+        <div id="tt103Msg"></div>
+        <div id="tt103Result" style="display:none">
+          <div class="metrics" id="tt103Metrics"></div>
+          <button class="btn pri" id="btnTT103Dl">⬇️ Tải file Excel</button>
+          <div class="tblwrap" style="margin-top:10px" id="tt103Preview"></div>
         </div>
       </div>
     </section>
@@ -1049,13 +1071,98 @@ function deepLeaves(node,out){
 }
 const SKIP_LEAF=/^(DigestValue|SignatureValue|X509Certificate|X509SubjectName|Modulus|Exponent|ttinNhaCCapDVu)$/;
 /* Kết xuất NHIỀU tờ khai XML -> 1 file Excel: sheet 'Tổng hợp tờ khai' + 'Chi tiết' */
-function buildDeclSummary(items){
-  const infoKeys=['Tên file'],detKeys=[],infos=[],dets=[];
+/* ===== Kiểm tra tỷ lệ % thuế NTNN theo phương pháp trực tiếp — TT 103/2014/TT-BTC =====
+   Phân loại 'Nội dung giao dịch' theo từ khóa để suy ra tỷ lệ % ĐÚNG của GTGT và TNDN,
+   so với tỷ lệ % đã kê khai trên tờ khai. Đây là công cụ RÀ SOÁT theo từ khóa — kết quả
+   cần người có chuyên môn xác nhận lại bản chất giao dịch trước khi kết luận. */
+function _has103(t,...kws){return kws.some(k=>t.includes(stripAccents(k).toLowerCase()));}
+function classify103(text){
+  const t=stripAccents(String(text||'')).toLowerCase();
+  const has=(...kws)=>_has103(t,...kws);
+  let gtgtCat='Kinh doanh khác',gtgtRate=2,gtgtKw='(không khớp từ khóa cụ thể)';
+  if(has('phan phoi','cung cap hang hoa')){gtgtCat='Phân phối, cung cấp hàng hóa';gtgtRate=1;gtgtKw='phân phối/cung cấp hàng hóa';}
+  else if(has('xay dung')){
+    if(has('bao thau nguyen vat lieu','bao thau vat tu','bao vat tu','bao nguyen vat lieu')){
+      gtgtCat='Xây dựng có bao thầu nguyên vật liệu';gtgtRate=3;gtgtKw='xây dựng (bao thầu NVL)';
+    }else{gtgtCat='Dịch vụ, xây dựng không bao thầu NVL';gtgtRate=5;gtgtKw='xây dựng (không bao thầu NVL)';}
+  }
+  else if(has('san xuat','van tai','van chuyen')){gtgtCat='Sản xuất, vận tải, dịch vụ gắn với hàng hóa';gtgtRate=3;gtgtKw='sản xuất/vận tải';}
+  else if(has('dich vu')){
+    if(has('gan voi hang hoa','kem hang hoa','di kem hang hoa')){gtgtCat='Sản xuất, vận tải, dịch vụ gắn với hàng hóa';gtgtRate=3;gtgtKw='dịch vụ gắn với hàng hóa';}
+    else{gtgtCat='Dịch vụ, xây dựng không bao thầu NVL';gtgtRate=5;gtgtKw='dịch vụ';}
+  }
+  let tndnCat='Kinh doanh khác',tndnRate=2,tndnKw='(không khớp từ khóa cụ thể)';
+  if(has('chuyen nhuong chung khoan')){tndnCat='Chuyển nhượng chứng khoán, hoa hồng nhượng tái bảo hiểm';tndnRate=0.1;tndnKw='chuyển nhượng chứng khoán';}
+  else if(has('hoa hong')&&has('tai bao hiem')){tndnCat='Chuyển nhượng chứng khoán, hoa hồng nhượng tái bảo hiểm';tndnRate=0.1;tndnKw='hoa hồng nhượng tái bảo hiểm';}
+  else if(has('quan ly nha hang','khach san','casino','ban quyen')){tndnCat='Quản lý nhà hàng, khách sạn, casino, thu nhập bản quyền';tndnRate=10;tndnKw='nhà hàng/khách sạn/casino/bản quyền';}
+  else if(has('kinh doanh thuong mai','phan phoi hang hoa','phan phoi')){tndnCat='Kinh doanh thương mại, phân phối hàng hóa';tndnRate=1;tndnKw='thương mại/phân phối hàng hóa';}
+  else if(has('xay dung','van tai','van chuyen','san xuat')){tndnCat='Xây dựng, vận tải, sản xuất và hoạt động kinh doanh khác';tndnRate=2;tndnKw='xây dựng/vận tải/sản xuất';}
+  else if(has('cho thue may moc','cho thue thiet bi','bao hiem','lai tien vay','lai vay','dich vu')){tndnCat='Dịch vụ, cho thuê máy móc thiết bị, bảo hiểm, lãi tiền vay';tndnRate=5;tndnKw='dịch vụ/cho thuê MMTB/bảo hiểm/lãi vay';}
+  return {gtgtCat,gtgtRate,gtgtKw,tndnCat,tndnRate,tndnKw};
+}
+function pctEq(a,b){return Math.abs((+a||0)-(+b||0))<0.05;}
+/* Xây bảng kiểm tra tỷ lệ % GTGT/TNDN theo TT 103/2014/TT-BTC từ các dòng chi tiết
+   (chỉ xét dòng có đủ 'Nội dung giao dịch' + tỷ lệ % đã kê khai — bỏ qua dòng không
+   thuộc bảng kê NTNN, vd phụ lục 05-x). */
+function buildTT103Sheet(dets){
+  const H=['Tên file','Mã số thuế','Tên người nộp thuế','Kỳ kê khai','Nội dung giao dịch',
+    'Nhóm GTGT (phân loại theo TT103)','Từ khóa GTGT khớp','GTGT - Tỷ lệ % (kê khai)','GTGT - Tỷ lệ % đúng (TT103)','GTGT - Kết quả',
+    'GTGT - Doanh thu tính thuế','GTGT - Thuế phải nộp (kê khai)','GTGT - Thuế phải nộp (đúng TT103)',
+    'Nhóm TNDN (phân loại theo TT103)','Từ khóa TNDN khớp','TNDN - Tỷ lệ % (kê khai)','TNDN - Tỷ lệ % đúng (TT103)','TNDN - Kết quả',
+    'TNDN - Doanh thu tính thuế','TNDN - Thuế phải nộp (kê khai)','TNDN - Thuế phải nộp (đúng TT103)'];
+  const rows=[H];
+  for(const d of dets){
+    const noiDung=d['Nội dung giao dịch'];
+    const gPct=d['GTGT - Tỷ lệ %'],tPct=d['TNDN - Tỷ lệ %'];
+    if(noiDung==null&&gPct==null&&tPct==null)continue;   // không phải dòng bảng kê NTNN
+    const c=classify103(noiDung);
+    const gDT=+d['GTGT - DT tính thuế']||0,tDT=+d['TNDN - DT tính thuế']||0;
+    // GTGT kê khai 0% và DT tính thuế = 0 -> nhiều khả năng KHÔNG thuộc diện chịu GTGT
+    // (vd dịch vụ cung cấp/tiêu dùng hoàn toàn ở nước ngoài) -> không kết luận FALSE thẳng.
+    const gOk=(gPct==null)?''
+      :(pctEq(gPct,0)&&gDT===0?'0% - có thể không thuộc diện chịu GTGT (kiểm tra thêm)'
+      :(pctEq(gPct,c.gtgtRate)?'TRUE':'FALSE'));
+    const tOk=(tPct==null)?'':(pctEq(tPct,c.tndnRate)?'TRUE':'FALSE');
+    rows.push([d['Tên file']||'',d['Mã số thuế']||'',d['Tên người nộp thuế']||'',d['Kỳ kê khai']||'',noiDung||'',
+      c.gtgtCat,c.gtgtKw,gPct==null?'':gPct,c.gtgtRate,gOk,
+      gDT,d['GTGT - Thuế phải nộp']==null?'':d['GTGT - Thuế phải nộp'],gOk===''?'':Math.round(gDT*c.gtgtRate/100),
+      c.tndnCat,c.tndnKw,tPct==null?'':tPct,c.tndnRate,tOk,
+      tDT,d['TNDN - Thuế phải nộp']==null?'':d['TNDN - Thuế phải nộp'],tOk===''?'':Math.round(tDT*c.tndnRate/100)]);
+  }
+  return rows;
+}
+/* Khối tờ khai CHÍNH (mix nhiều chỉ tiêu ct.. cùng cấp với bảng kê con, vd
+   CTieuTKhaiChinh/CTieuChinh) — KHÔNG coi là 1 "dòng" bảng kê, tránh nhầm dữ liệu
+   tổng hợp của cả tờ khai thành 1 dòng chi tiết. Dùng RIÊNG cho tab tổng hợp tờ
+   khai (không đụng tới collectTablesX/tableRowsOf mà tab XML gốc đang dùng). */
+function isMainDeclContainer(tag){return /^CTieu/i.test(tag);}
+function declRowsOf(node){
+  if(isMainDeclContainer(xmlLocal(node.tagName)))return null;
+  const kids=xChildren(node).filter(c=>xChildren(c).length>0);
+  const byTag={};for(const k of kids){const n=xmlLocal(k.tagName);(byTag[n]=byTag[n]||[]).push(k);}
+  let best=null,mx=0;
+  for(const n in byTag){if(byTag[n].some(isRowLike)&&byTag[n].length>mx){mx=byTag[n].length;best=n;}}
+  return best?byTag[best]:null;
+}
+/* Dò TẤT CẢ bảng kê trong tờ khai — không giới hạn theo tên thẻ (05_x/BK-QTT/bke...)
+   như collectTablesX, để không bỏ sót bảng kê của các loại tờ khai khác. */
+function collectDeclTables(node,tables,rowSet){
+  const name=repeatedChildName(node);
+  let rows=null;
+  if(name)rows=xChildren(node).filter(c=>xmlLocal(c.tagName)===name);
+  else{const r=declRowsOf(node);if(r&&r.length)rows=r;}
+  if(rows){rows.forEach(x=>rowSet.add(x));tables.push({title:xmlLocal(node.tagName),rows});return;}
+  for(const c of xChildren(node))collectDeclTables(c,tables,rowSet);
+}
+/* Trích xuất TẤT CẢ dòng chi tiết + thông tin tờ khai từ nhiều file XML.
+   Dùng chung cho sheet 'Chi tiết' (tab Tổng hợp) và tab Kiểm tra tỷ lệ % TT103. */
+function extractDeclDetails(items){
+  const infos=[],dets=[];
   for(const it of items){
     const doc=new DOMParser().parseFromString(it.text,'application/xml');
     if(doc.querySelector('parsererror'))continue;
     const root=doc.documentElement;stripSignature(root);
-    const rowSet=new Set(),tables=[];collectTablesX(root,tables,rowSet);
+    const rowSet=new Set(),tables=[];collectDeclTables(root,tables,rowSet);
     const fields=[];leafValuesX(root,'',fields,rowSet);
     const info={'Tên file':it.name};
     for(const f of fields){const leaf=f.path.split('/').pop();
@@ -1071,12 +1178,19 @@ function buildDeclSummary(items){
         const d={'Tên file':it.name,'Mã số thuế':info['Mã số thuế']||'','Tên người nộp thuế':info['Tên người nộp thuế']||'',
                  'Kỳ kê khai':info['Kỳ kê khai']||'','Bảng kê':t.title};
         for(const k in flat){const lbl=COL_LABELS_NTNN[k]||(colLabelMap(t.title)||{})[k]||k;d[lbl]=maybeNumber(flat[k]);}
-        dets.push(d);for(const k in d)if(!detKeys.includes(k))detKeys.push(k);
+        dets.push(d);
       }
     }
     info['Số dòng chi tiết']=nDet;
-    infos.push(info);for(const k in info)if(!infoKeys.includes(k))infoKeys.push(k);
+    infos.push(info);
   }
+  return {infos,dets};
+}
+function buildDeclSummary(items){
+  const {infos,dets}=extractDeclDetails(items);
+  const infoKeys=[],detKeys=[];
+  for(const info of infos)for(const k in info)if(!infoKeys.includes(k))infoKeys.push(k);
+  for(const d of dets)for(const k in d)if(!detKeys.includes(k))detKeys.push(k);
   const toAoa=(keys,rows)=>[keys].concat(rows.map(r=>keys.map(k=>r[k]===undefined?'':r[k])));
   const out={};
   if(infos.length)out['Tổng hợp tờ khai']=toAoa(infoKeys,infos);
@@ -1553,7 +1667,7 @@ $('btnMergeSaveCfg').onclick=()=>{cfg2Save();flashNote('mergeCfgNote');};
 /* Tabs */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
-  ['audit','xml','xmldecl','merge','npt'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
+  ['audit','xml','xmldecl','tt103','merge','npt'].forEach(n=>$('tab-'+n).style.display=n===t.dataset.tab?'':'none');
 });
 
 /* ---- Tải file (audit) ---- */
@@ -1677,6 +1791,31 @@ $('btnXmlDecl').onclick=async()=>{
   }catch(err){$('xmldeclMsg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';}
 };
 $('btnXmlDeclDl').onclick=()=>{if(XMLDECLRES)writeWB(XMLDECLRES,'tong_hop_to_khai.xlsx');};
+
+/* ---- Tab riêng: Kiểm tra tỷ lệ % TT103 (NTNN) ---- */
+let TT103RES=null;
+$('f_tt103').onchange=e=>{$('btnTT103').disabled=!e.target.files.length;};
+$('btnTT103').onclick=async()=>{
+  const files=[...$('f_tt103').files];if(!files.length)return;
+  $('tt103Msg').innerHTML='<div class="muted">Đang xử lý…</div>';
+  try{
+    const items=[];
+    for(const f of files){items.push({name:f.name,text:await f.text()});}
+    const {dets}=extractDeclDetails(items);
+    const rows=buildTT103Sheet(dets);
+    if(rows.length<=1)throw new Error('Không tìm thấy dòng bảng kê nào có Nội dung giao dịch / Tỷ lệ % GTGT, TNDN.');
+    TT103RES={'Kiểm tra tỷ lệ % TT103':rows};
+    $('tt103Msg').innerHTML='';$('tt103Result').style.display='block';
+    const h=rows[0],iG=h.indexOf('GTGT - Kết quả'),iT=h.indexOf('TNDN - Kết quả');
+    let gF=0,tF=0;for(const r of rows.slice(1)){if(r[iG]==='FALSE')gF++;if(r[iT]==='FALSE')tF++;}
+    $('tt103Metrics').innerHTML=
+      `<div class="metric"><div class="k">Số dòng kiểm tra</div><div class="v">${rows.length-1}</div></div>`+
+      `<div class="metric"><div class="k">GTGT sai tỷ lệ %</div><div class="v">${gF}</div></div>`+
+      `<div class="metric"><div class="k">TNDN sai tỷ lệ %</div><div class="v">${tF}</div></div>`;
+    renderTable($('tt103Preview'),rows,400);
+  }catch(err){$('tt103Msg').innerHTML='<div class="errbox">Lỗi: '+err.message+'</div>';}
+};
+$('btnTT103Dl').onclick=()=>{if(TT103RES)writeWB(TT103RES,'kiem_tra_ty_le_TT103.xlsx');};
 
 /* ---- Merge tab ---- */
 $('f_merge').onchange=e=>{$('btnMerge').disabled=!e.target.files.length;};
