@@ -768,7 +768,7 @@ function buildEinvLookup(einvWb,einvCfg){
     const no=stripZeros(iNo>=0?row[iNo]:null);if(!no)continue;
     const mstPart=iMst>=0?baseMST(row[iMst]):'';
     const dd=parseDate(iDate>=0?row[iDate]:null);
-    const rec={status:iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'',tax:iTax>=0?parseAmount(row[iTax]):null};
+    const rec={status:iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'',tax:iTax>=0?parseAmount(row[iTax]):null,date:dd};
     map[mstPart+'|'+no+'|'+dkey(dd)]=rec;
     meta.byMstNo[mstPart+'|'+no]=rec;
     meta.nRow++; if(dd)meta.nDate++; if(rec.status)meta.nStatus++;
@@ -851,13 +851,14 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
       let e=eNoDate?null:einv[base+'|'+dkey(r.dd)],lech=false;
       if(!e&&em.byMstNo){const e2=em.byMstNo[base];if(e2){e=e2;lech=!eNoDate;}}
       r.einvStatus=e?e.status:null;r.totalTax=e?e.tax:null;
+      r.einvDate=(e&&e.date)?ddmy(e.date):'';
       if(lech){r.statusGroup=DMIS;r.einvNote=DMIS;}
       else if(e){r.statusGroup=classifyStatus(r.einvStatus,cfg.invoiceStatus,cfg.notFound);}
       else{r.statusGroup=cfg.notFound;}
     }
     // reconcile per hóa đơn
     const inv={};recs.forEach(r=>{const k=r.mst+'|'+r.no+'|'+dkey(r.dd);(inv[k]=inv[k]||{sumVat:0,tax:null,recs:[]});inv[k].sumVat+=r.vat;if(inv[k].tax==null&&r.totalTax!=null)inv[k].tax=r.totalTax;inv[k].recs.push(r);});
-    for(const k in inv){const o=inv[k];const ch=(o.tax==null)?null:Math.round(o.tax-o.sumVat);o.recs.forEach(r=>{r.chenh=ch;});}
+    for(const k in inv){const o=inv[k];const ch=(o.tax==null)?null:Math.round(o.tax-o.sumVat);o.recs.forEach(r=>{r.chenh=ch;r.sumVatInvoice=Math.round(o.sumVat);});}
   }
   // check thuế suất (kết hợp danh mục HH-DV không được giảm theo từng NĐ nếu có)
   const vatCats=buildVatCatalog(vatCatWb,cfg.periodSheetHint||[]);
@@ -947,21 +948,17 @@ function buildSheets(recs,origHeader,cfg,meta){
   const mstS=[['MST','Số dòng hóa đơn']];Object.keys(cnt).sort().forEach(k=>mstS.push([k,cnt[k]]));
   sheets['MST tra cứu']=mstS;
 
-  /* sheet NNT KHÔNG HOẠT ĐỘNG (gộp theo MST bán, trạng thái bất thường) */
+  /* sheet NNT KHÔNG HOẠT ĐỘNG — đủ cột như 'Bảng kê đã xử lý' (từng dòng hóa đơn,
+     KHÔNG gộp theo MST), chỉ lọc các dòng có người bán trạng thái bất thường. */
   {
-    const agg2={};
-    for(const r of recs){
+    const nntRows=[bxl[0]];
+    recs.forEach((r,i)=>{
       const st=(r.statusNNT||'').trim();
-      if(!st||st.toLowerCase().includes('đang hoạt động'))continue;
-      const k=r.mst;if(!k)continue;
-      if(!agg2[k])agg2[k]={seller:r.seller||'',st,close:r.close,inv:new Set(),pre:0,vat:0};
-      agg2[k].inv.add(r.no);agg2[k].pre+=r.pre;agg2[k].vat+=r.vat;
-    }
-    const rows2=Object.keys(agg2).map(k=>{const o=agg2[k];return [k,o.seller,o.st,o.close?ddmy(o.close):'',o.inv.size,Math.round(o.pre),Math.round(o.vat)];});
-    rows2.sort((a,b)=>b[6]-a[6]);
-    if(rows2.length){
-      sheets['NNT không hoạt động']=[['MST người bán','Tên người bán','Trạng thái NNT','Ngày đóng trạng thái','Số hóa đơn','Tổng giá trị chưa thuế','Tổng thuế GTGT']].concat(rows2);
-      summary['Số NNT không hoạt động/bất thường']=rows2.length;
+      if(st&&!st.toLowerCase().includes('đang hoạt động'))nntRows.push(bxl[i+1]);
+    });
+    if(nntRows.length>1){
+      sheets['NNT không hoạt động']=nntRows;
+      summary['Số dòng HĐ của NNT không hoạt động/bất thường']=nntRows.length-1;
     }
   }
 
@@ -992,8 +989,8 @@ function buildSheets(recs,origHeader,cfg,meta){
     if(recs.some(r=>r.statusGroup===_OUT))
       sheets['HĐ ngoài kỳ dữ liệu HĐĐT']=detail(r=>r.statusGroup===_OUT,[['Kết quả tra HĐĐT',r=>_OUT]]);
     if(recs.some(r=>r.statusGroup===_DM))
-      sheets['HĐ lệch ngày với HĐĐT']=detail(r=>r.statusGroup===_DM,[['Kết quả tra HĐĐT',r=>_DM],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
-    sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Chênh lệch (theo HĐ)',r=>r.chenh]]);
+      sheets['HĐ lệch ngày với HĐĐT']=detail(r=>r.statusGroup===_DM,[['Kết quả tra HĐĐT',r=>_DM],['Ngày trên HĐĐT',r=>r.einvDate||''],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
+    sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Tổng tiền thuế trên bảng kê (cùng số HĐ, ngày, MST bán)',r=>r.sumVatInvoice==null?'':r.sumVatInvoice],['Chênh lệch (HĐĐT - Bảng kê)',r=>r.chenh]]);
   }
   return {sheets,summary};
 }
