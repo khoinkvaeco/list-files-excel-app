@@ -546,35 +546,69 @@ function vatCatPhrases(text){
   return out;
 }
 // Dựng danh mục theo từng kỳ: [{from,to,phrases:Set}]
+// Đọc danh mục HH-DV KHÔNG được giảm của 1 sheet -> tập cụm từ khóa
+function collectVatPhrasesOfSheet(mat){
+  let hr=-1,iName=-1,iDesc=-1;
+  for(let r=0;r<Math.min(12,mat.length);r++){
+    const row=mat[r]||[];
+    for(let c=0;c<row.length;c++){
+      const t=normName(row[c]);
+      if(t==='ten san pham'){hr=r;iName=c;}
+      if(t==='noi dung'&&hr===r)iDesc=c;
+    }
+    if(hr===r&&iName>=0)break;
+  }
+  if(iName<0){iName=7;iDesc=8;hr=Math.max(hr,2);}   // mặc định cột H / I
+  const phrases=new Set();
+  for(const row of mat.slice(hr+1)){
+    if(!row)continue;
+    for(const idx of [iName,iDesc]){
+      if(idx<0||idx>=row.length)continue;
+      for(const p of vatCatPhrases(row[idx]))phrases.add(p);
+    }
+  }
+  return phrases;
+}
+// "Từ 01/02/2022 - 31/12/2022" (chấp nhận các dấu gạch nối/khoảng trắng khác nhau)
+// -> {from:'2022-02-01', to:'2022-12-31'}
+function parsePeriodRangeText(text){
+  const m=String(text||'').match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})[^0-9]{1,6}(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/);
+  if(!m)return null;
+  const pad=n=>String(n).padStart(2,'0');
+  return {from:`${m[3]}-${pad(m[2])}-${pad(m[1])}`,to:`${m[6]}-${pad(m[5])}-${pad(m[4])}`};
+}
+function findPeriodTableSheet(wb){
+  return wb.SheetNames.find(n=>{const t=normName(n);return t.includes('thoi gian ap dung')||t==='sheet1';});
+}
+/* Ưu tiên đọc khoảng thời gian TỪ CHÍNH FILE (sheet 'Thời gian áp dụng'/'Sheet1'):
+   mỗi dòng trong sheet đó là 1 kỳ, ánh xạ THEO THỨ TỰ với các sheet danh mục còn lại
+   trong workbook (đúng cấu trúc: 1 sheet thời gian + N sheet danh mục theo N kỳ).
+   Nhờ vậy khi có Nghị định/kỳ giảm thuế MỚI, chỉ cần thêm dòng + sheet vào file Excel
+   — không cần sửa code. Nếu file không có sheet này thì dùng cấu hình mặc định (kỳ
+   giảm cứng trong công cụ) để tương thích với các file danh mục cũ. */
 function buildVatCatalog(wb,periodHints){
   if(!wb)return null;
-  const norm=s=>stripAccents(String(s||'')).toLowerCase();
+  const psn=findPeriodTableSheet(wb);
   const cats=[];
-  for(const ph of periodHints){
-    const sn=wb.SheetNames.find(n=>ph.hint.some(h=>norm(n).includes(norm(h))));
-    if(!sn)continue;
-    const mat=sheetMatrix(wb,sn);
-    // dò dòng tiêu đề chứa 'Tên sản phẩm'
-    let hr=-1,iName=-1,iDesc=-1;
-    for(let r=0;r<Math.min(12,mat.length);r++){
-      const row=mat[r]||[];
-      for(let c=0;c<row.length;c++){
-        const t=normName(row[c]);
-        if(t==='ten san pham'){hr=r;iName=c;}
-        if(t==='noi dung'&&hr===r)iDesc=c;
-      }
-      if(hr===r&&iName>=0)break;
+  if(psn){
+    const pm=sheetMatrix(wb,psn);
+    const ranges=[];
+    for(const row of pm){const rng=row&&parsePeriodRangeText(row[0]);if(rng)ranges.push(rng);}
+    const otherSheets=wb.SheetNames.filter(n=>n!==psn);
+    ranges.forEach((rng,i)=>{
+      const sn=otherSheets[i];if(!sn)return;
+      const phrases=collectVatPhrasesOfSheet(sheetMatrix(wb,sn));
+      if(phrases.size)cats.push({from:rng.from,to:rng.to,sheet:sn,phrases:[...phrases]});
+    });
+  }
+  if(!cats.length){
+    // dự phòng: không có/đọc được sheet 'Thời gian áp dụng' -> dò theo từ khóa tên sheet mặc định
+    for(const ph of periodHints){
+      const sn=wb.SheetNames.find(n=>ph.hint.some(h=>normName(n).includes(normName(h))));
+      if(!sn)continue;
+      const phrases=collectVatPhrasesOfSheet(sheetMatrix(wb,sn));
+      if(phrases.size)cats.push({from:ph.from,to:ph.to,sheet:sn,phrases:[...phrases]});
     }
-    if(iName<0){iName=7;iDesc=8;hr=Math.max(hr,2);}   // mặc định cột H / I
-    const phrases=new Set();
-    for(const row of mat.slice(hr+1)){
-      if(!row)continue;
-      for(const idx of [iName,iDesc]){
-        if(idx<0||idx>=row.length)continue;
-        for(const p of vatCatPhrases(row[idx]))phrases.add(p);
-      }
-    }
-    if(phrases.size)cats.push({from:ph.from,to:ph.to,sheet:sn,phrases:[...phrases]});
   }
   return cats.length?cats:null;
 }
