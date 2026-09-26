@@ -295,6 +295,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>Cột Ngày đóng TT tổ chức</span><input type="text" id="hokd_bb" value="BB"></label>
         </div>
         <details><summary>⚙️ Cấu hình cột</summary><div class="body">
+          <label class="fld"><span>Kiểu chỉ định cột (áp dụng cho mọi ô cấu hình cột bên dưới, kể cả File NPT từ TMS)</span>
+            <select id="npt_col_mode">
+              <option value="letter">Theo chữ cái cột Excel (A, B, C…)</option>
+              <option value="name">Theo tên tiêu đề</option>
+            </select></label>
+          <p class="hint">Chọn "Theo tên tiêu đề" thì nhập <b>tên cột</b> vào các ô bên dưới (khớp gần đúng, ví dụ "MST NNT", "Từ tháng"), nhớ đặt đúng "Dòng tiêu đề" của từng file.</p>
           <h3>Phụ lục 05-3</h3>
           <div class="row2">
             <label class="fld"><span>Dòng tiêu đề</span><input type="number" id="p3_hdr" min="1" value="1"></label>
@@ -1346,7 +1352,11 @@ function parsePeriods(fromVal,toVal){
   const periods=[];
   for(let i=0;i<n;i++){
     let f=froms[i],t=tos[i];
-    if(f==null&&t==null)continue;
+    if(f==null&&t==null){
+      if(n>1)continue; // phần rỗng giữa chuỗi nhiều kỳ đóng gói ';' -> bỏ qua
+      // n===1 (không đóng gói multi-kỳ): Từ/Đến tháng ĐỀU TRỐNG -> vẫn GIỮ [null,null],
+      // để reconcilePL3 suy ra Từ=01, Đến=12 của năm đang kiểm tra khi đối chiếu.
+    }
     if(t==null&&i+1<n&&froms[i+1]!=null)t=froms[i+1]-1; // kết thúc ngay trước kỳ kế
     periods.push([f,t]);
   }
@@ -1460,11 +1470,18 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
       tf=recs.map(r=>fmtMonth(r.from)).join('; ');tt=recs.map(r=>fmtMonth(r.to)).join('; ');
       if(dFrom==null){why.push('Thiếu Từ tháng kê khai');}
       else{const dEnd=dTo!=null?dTo:dFrom;
-        for(const r of recs){const lo=r.from!=null?r.from:dFrom;if(dFrom>=lo&&(r.to==null||dEnd<=r.to)){ok=true;break;}}
+        // Năm đang kiểm tra = năm của kỳ kê khai (Từ tháng) trên PL3. Trên TMS:
+        // 'Từ tháng' trống -> hiểu = tháng 01 năm đang kiểm tra; 'Đến tháng' trống
+        // -> hiểu = tháng 12 năm đang kiểm tra; có dữ liệu thì dùng đúng dữ liệu đó.
+        const yKT=Math.floor((dFrom-1)/12);
+        const resFrom=r=>r.from!=null?r.from:(yKT*12+1);
+        const resTo=r=>r.to!=null?r.to:(yKT*12+12);
+        for(const r of recs){const lo=resFrom(r),hi=resTo(r);if(dFrom>=lo&&dEnd<=hi){ok=true;break;}}
         if(!ok){
           for(const r of recs){
-            if(r.from!=null&&dFrom<r.from)why.push(`Kê khai từ ${fmtMonth(dFrom)} trước kỳ TMS (${fmtMonth(r.from)})`);
-            if(r.to!=null&&dEnd>r.to)why.push(`Kê khai đến ${fmtMonth(dEnd)} sau kỳ TMS (${fmtMonth(r.to)})`);
+            const lo=resFrom(r),hi=resTo(r);
+            if(dFrom<lo)why.push(`Kê khai từ ${fmtMonth(dFrom)} trước kỳ TMS (${fmtMonth(lo)})`);
+            if(dEnd>hi)why.push(`Kê khai đến ${fmtMonth(dEnd)} sau kỳ TMS (${fmtMonth(hi)})`);
           }
           if(!why.length)why.push('Kỳ kê khai ngoài kỳ đăng ký TMS');
         }
@@ -1674,7 +1691,7 @@ const CFG2_IDS=[
   // Gộp file
   'mergeMode','mg_hdr','mg_name','mg_blank','mg_dedupe','mg_source',
   // Kiểm tra NPT
-  'npt_auto_hdr','p3_hdr','p3_mstnnt','p3_ten','p3_mstnpt','p3_tu','p3_den','p3_tungay','p3_dengay',
+  'npt_col_mode','npt_auto_hdr','p3_hdr','p3_mstnnt','p3_ten','p3_mstnpt','p3_tu','p3_den','p3_tungay','p3_dengay',
   'tm_hdr','tm_mstnnt','tm_ten','tm_mstnpt','tm_tu','tm_den',
   'p1_hdr','p1_mst','p1_tntt','p1_pay','p1_uq',
   'p2_hdr','p2_income','p2_nonres','p2_withheld',
@@ -1910,7 +1927,7 @@ $('btnNpt').onclick=()=>{
   $('nptMsg').innerHTML='<div class="muted">Đang xử lý…</div>';
   setTimeout(()=>{
     try{
-      COL_MODE='letter';
+      COL_MODE=$('npt_col_mode').value==='name'?'name':'letter';
       const auto=$('npt_auto_hdr').checked;
       const KW=['STT','Mã số thuế','Họ và tên'];
       const tmsMat=sheetMatrix(NF.tms,$('npt_tms_sheet').value);
@@ -1930,7 +1947,10 @@ $('btnNpt').onclick=()=>{
       let p1tntt=$('p1_tntt').value,p1pay=$('p1_pay').value,p1uq=$('p1_uq').value;
       // Luôn dò cột theo TÊN (chỉ ghi đè khi tìm thấy; nếu không thì giữ chữ cái nhập tay)
       // -> đúng cho mọi bố cục file, không phụ thuộc ô 'Tự động dò dòng tiêu đề'.
-      {
+      // CHỈ áp dụng ở chế độ 'Theo chữ cái Excel': kết quả dò trả về CHỮ CÁI VỊ TRÍ,
+      // nếu đang ở chế độ 'Theo tên tiêu đề' thì giữ nguyên tên người dùng đã nhập
+      // (gán chữ cái vào đây sẽ bị hiểu nhầm thành tên cột cần tìm, gây not-found).
+      if(COL_MODE!=='name'){
         const g=(labels,H)=>detectColLetter(pl3Mat,labels,H);
         let c;
         if(c=g(['Mã số thuế NNT','MST của người nộp thuế','Mã số thuế của người nộp thuế'],p3H))p3nnt=c;
