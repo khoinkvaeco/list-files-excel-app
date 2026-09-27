@@ -1444,7 +1444,7 @@ function buildHokd(mat,hdrRow,c){
   for(const row of mat.slice(hdrRow)){const d=mstKey(row[im]);if(d)out[d]=row[ib];}
   return out;
 }
-function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
+function reconcilePL3(mat,hdrRow,c,lk,hokdMap,uqMap){
   hokdMap=hokdMap||{};
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
   const ix={};for(const k in c)ix[k]=resolveIndex(header,c[k]);
@@ -1458,7 +1458,8 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
     const base=header.map((_,j)=>row[j]==null?'':(row[j] instanceof Date?ddmy({y:row[j].getFullYear(),m:row[j].getMonth()+1,d:row[j].getDate()}):row[j]));
     const rawNnt=String(row[ix.mst_nnt]==null?'':row[ix.mst_nnt]).trim();
     const mstNpt=mstKey(row[ix.mst_npt]),mstNnt=mstKey(row[ix.mst_nnt]),name=normName(row[ix.ten_npt]);
-    if(/^(ct\d+|\[\d+\])/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
+    // bỏ qua dòng mã chỉ tiêu/trống và NPT của cá nhân KHÔNG uỷ quyền QT thay (theo PL1)
+    if(/^(ct\d+|\[\d+\])/i.test(rawNnt)||(!mstNnt&&!mstNpt&&!name)||isNonUq(uqMap,mstNnt)){out.push(base.concat(['','','','','','','']));rowNnt.push('');continue;}
     rowNnt.push(mstNnt);
     let recs=null,src='';
     if(mstNpt&&lk.byMst[mstNpt]){recs=lk.byMst[mstNpt];src='MST NPT';}
@@ -1568,11 +1569,43 @@ function pitProgressiveYear(t,y){if(!(t>0))return 0;let tax=0,lo=0;for(const [hi
 function detectTaxYear(mat){
   for(let r=0;r<Math.min(15,mat.length);r++){
     const t=normName((mat[r]||[]).filter(x=>x!=null&&x!=='').join(' '));
-    if(!/ky tinh thue|nam/.test(t))continue;
-    const m=t.match(/(?:ky tinh thue|nam)[^0-9]{0,20}(20\d{2})/);if(m)return +m[1];
+    const m=t.match(/(?:ky tinh thue|ky ke khai)[^0-9]{0,20}(20\d{2})\b/);if(m)return +m[1];
   }
   return null;
 }
+// Năm kỳ kê khai của tờ khai: tìm dòng có nhãn 'Kỳ kê khai'/'Kỳ tính thuế' ở mọi sheet
+// (vd sheet ThongTinChung: KyKKhaiThue | Kỳ kê khai | 2024)
+function detectDeclYear(wb){
+  if(!wb)return null;
+  for(const n of wb.SheetNames){
+    const mat=sheetMatrix(wb,n);
+    for(let r=0;r<Math.min(mat.length,300);r++){
+      const row=mat[r]||[];
+      for(let ci=0;ci<row.length;ci++){
+        const t=normName(row[ci]);
+        if(t!=='ky ke khai'&&t!=='ky tinh thue'&&t!=='kykkhai')continue;
+        for(const v of row.slice(ci+1)){const m=String(v==null?'':v).match(/\b(20\d{2})\b/);if(m)return +m[1];}
+      }
+    }
+    const y=detectTaxYear(mat);if(y)return y;
+  }
+  return null;
+}
+// PL1: MST NNT -> có uỷ quyền QT thay (true/false). null nếu cột UQ không đọc được.
+function buildUqMap(mat,hdrRow,mstRef,uqRef){
+  const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
+  const im=resolveIndex(header,mstRef),iu=resolveIndex(header,uqRef);
+  if(im<0||iu<0)return null;
+  const RE=/^(1|0|true|false|x|co|khong)$/;
+  const map={};let known=0;
+  for(const row of mat.slice(hdrRow)){
+    const d=mstKey(row[im]);if(!d)continue;
+    const v=normName(row[iu]);if(RE.test(v))known++;
+    map[d]=map[d]||truthy(row[iu]);
+  }
+  return known?map:null;
+}
+const isNonUq=(uqMap,d)=>!!(uqMap&&d&&Object.prototype.hasOwnProperty.call(uqMap,d)&&!uqMap[d]);
 function truthy(v){return ['1','true','x','co'].includes(normName(v));}
 function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
@@ -1588,13 +1621,14 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
     const base=header.map((_,j)=>row[j]==null?'':row[j]);
     const d=mstKey(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
-    const npt=[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
+    // cá nhân KHÔNG uỷ quyền QT thay: không trả kết quả NPT (chỉ kiểm tra thuế)
+    const npt=isNonUq(taxCfg&&taxCfg.uqMap,d)?['','']:[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
     if(taxCfg){
       let verdict='';
       const raw=String(row[tIx.tntt]==null?'':row[tIx.tntt]).trim();
       if(!(/^(ct\d+|\[\d+\])/i.test(raw)||raw==='')){
-        // năm đang kiểm tra: nhập tay > năm theo PL3 của NNT > năm chung dò được
-        const yr=taxCfg.year||(taxCfg.yearByNnt&&taxCfg.yearByNnt[d])||taxCfg.defYear||null;
+        // năm đang kiểm tra: nhập tay > Kỳ kê khai của tờ khai > năm theo PL3 của NNT > năm chung dò được
+        const yr=taxCfg.year||taxCfg.declYear||(taxCfg.yearByNnt&&taxCfg.yearByNnt[d])||taxCfg.defYear||null;
         const exp=Math.round(pitProgressiveYear(parseAmount(row[tIx.tntt]),yr));
         const pay=Math.round(parseAmount(row[tIx.pay]));
         verdict=Math.abs(pay-exp)<=1?'TRUE':'FALSE';
@@ -1677,13 +1711,13 @@ function classifyMultiSource(sheetsMat,hdrRow){
   return out;
 }
 // thêm cột kết quả vào PL1 đã xử lý (mat2d = mảng 2 chiều đã có header ở dòng 0)
-function applyMultiSource(mat2d,mstRef,resMap){
+function applyMultiSource(mat2d,mstRef,resMap,uqMap){
   const header=(mat2d[0]||[]).map(x=>x==null?'':x);
   const ix=resolveIndex(header,mstRef);
   const out=[header.concat(['Ủy quyền QT (nhiều nguồn TN)'])];
   for(const row of mat2d.slice(1)){
     const d=mstKey(row[ix]);
-    out.push(row.concat([resMap[d]||'']));
+    out.push(row.concat([isNonUq(uqMap,d)?'':(resMap[d]||'')]));
   }
   return out;
 }
@@ -2016,16 +2050,17 @@ $('btnNpt').onclick=()=>{
         if(c=detectColLetter(pl1Mat,['Tổng số thuế phải nộp'],p1H))p1pay=c;
         if(c=detectColLetter(pl1Mat,['Cá nhân uỷ quyền QT thay','Cá nhân uỷ quyền quyết toán thay'],p1H))p1uq=c;
       }
-      const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap);
+      const uqMap=buildUqMap(pl1Mat,p1H,p1mst,p1uq);
+      const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap,uqMap);
       const yIn=parseInt($('p1_year').value,10);
       const yrFix=(yIn>=2000&&yIn<=2100)?yIn:null;
       let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt,{tntt:p1tntt,tax_payable:p1pay,uy_quyen:p1uq,
-        year:yrFix,yearByNnt:rc.yearByNnt,defYear:rc.defYear||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat)});
+        year:yrFix,declYear:detectDeclYear(NF.qt),yearByNnt:rc.yearByNnt,defYear:rc.defYear||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat),uqMap});
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
         const sheetsMat=NF.ms.SheetNames.map(n=>({name:n,mat:sheetMatrix(NF.ms,n)}));
         const resMap=classifyMultiSource(sheetsMat,msHdr);
-        pl1=applyMultiSource(pl1,p1mst,resMap);
+        pl1=applyMultiSource(pl1,p1mst,resMap,uqMap);
       }
       NPTRES={'PL3 đối chiếu NPT':rc.out,'PL1 tổng hợp NPT':pl1};
       // Phụ lục 05-2: tính lại thuế
