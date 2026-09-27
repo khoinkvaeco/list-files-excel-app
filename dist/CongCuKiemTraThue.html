@@ -338,6 +338,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             <label class="fld"><span>Cá nhân uỷ quyền QT thay</span><input type="text" id="p1_uq" value="I"></label>
           </div>
           <div class="row2">
+            <label class="fld"><span>Số thuế TNCN đã khấu trừ (so với CN không UQ)</span><input type="text" id="p1_kt" value="U"></label>
             <label class="fld"><span>Năm kiểm tra (để trống = tự dò)</span><input type="number" id="p1_year" min="2000" max="2100" placeholder="vd 2025"></label>
           </div>
           <h3>Phụ lục 05-2 (tính lại thuế TNCN + chênh lệch)</h3>
@@ -1613,8 +1614,8 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
   monthsByNnt=monthsByNnt||{};
   // Kiểm tra Tổng số thuế phải nộp (đặt TRƯỚC cột 'Số NPT hợp lệ')
   let tIx=null;
-  if(taxCfg){tIx={tntt:resolveIndex(header,taxCfg.tntt),pay:resolveIndex(header,taxCfg.tax_payable),uq:resolveIndex(header,taxCfg.uy_quyen)};}
-  const extra=taxCfg?['Ktra Thuế TNCN phải nộp','Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)']
+  if(taxCfg){tIx={tntt:resolveIndex(header,taxCfg.tntt),pay:resolveIndex(header,taxCfg.tax_payable),uq:resolveIndex(header,taxCfg.uy_quyen),kt:resolveIndex(header,taxCfg.withheld)};}
+  const extra=taxCfg?['Ktra Thuế TNCN phải nộp','Ghi chú Ktra thuế TNCN','Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)']
                     :['Số NPT hợp lệ (TRUE)','Số tháng đủ ĐK NPT (nếu <12)'];
   const out=[header.concat(extra)];
   for(const row of mat.slice(hdrRow)){
@@ -1622,18 +1623,24 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
     const d=mstKey(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
     // cá nhân KHÔNG uỷ quyền QT thay: không trả kết quả NPT (chỉ kiểm tra thuế)
-    const npt=isNonUq(taxCfg&&taxCfg.uqMap,d)?['','']:[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
+    const nonUq=isNonUq(taxCfg&&taxCfg.uqMap,d);
+    const npt=nonUq?['','']:[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
     if(taxCfg){
-      let verdict='';
+      let verdict='',note='';
       const raw=String(row[tIx.tntt]==null?'':row[tIx.tntt]).trim();
       if(!(/^(ct\d+|\[\d+\])/i.test(raw)||raw==='')){
         // năm đang kiểm tra: nhập tay > Kỳ kê khai của tờ khai > năm theo PL3 của NNT > năm chung dò được
         const yr=taxCfg.year||taxCfg.declYear||(taxCfg.yearByNnt&&taxCfg.yearByNnt[d])||taxCfg.defYear||null;
         const exp=Math.round(pitProgressiveYear(parseAmount(row[tIx.tntt]),yr));
-        const pay=Math.round(parseAmount(row[tIx.pay]));
+        // CN uỷ quyền: so với 'Tổng số thuế phải nộp'; CN KHÔNG uỷ quyền: so với
+        // 'Số thuế TNCN đã khấu trừ' (tờ khai không ghi số quyết toán cho CN này)
+        const cmpIx=(nonUq&&tIx.kt>=0)?tIx.kt:tIx.pay;
+        const pay=Math.round(parseAmount(row[cmpIx]));
         verdict=Math.abs(pay-exp)<=1?'TRUE':'FALSE';
+        if(verdict==='FALSE'&&nonUq)
+          note='Thuế TNCN phải nộp theo công thức'+(yr?' (năm '+yr+')':'')+': '+fmtNum(exp)+'; đã khấu trừ: '+fmtNum(pay)+'; chênh lệch: '+fmtNum(pay-exp);
       }
-      out.push(base.concat([verdict].concat(npt)));
+      out.push(base.concat([verdict,note].concat(npt)));
     }else out.push(base.concat(npt));
   }
   return out;
@@ -1780,7 +1787,7 @@ const CFG2_IDS=[
   // Kiểm tra NPT
   'npt_col_mode','npt_auto_hdr','p3_hdr','p3_mstnnt','p3_ten','p3_mstnpt','p3_tu','p3_den','p3_tungay','p3_dengay',
   'tm_hdr','tm_mstnnt','tm_ten','tm_mstnpt','tm_tu','tm_den',
-  'p1_hdr','p1_mst','p1_tntt','p1_pay','p1_uq',
+  'p1_hdr','p1_mst','p1_tntt','p1_pay','p1_uq','p1_kt',
   'p2_hdr','p2_income','p2_nonres','p2_withheld',
   'hokd_hdr','hokd_mst','hokd_bb','ms_hdr'
 ];
@@ -2031,7 +2038,7 @@ $('btnNpt').onclick=()=>{
         hokdMap=buildHokd(hkMat,hkH,{mst:$('hokd_mst').value,bb:$('hokd_bb').value});
       }
       let p3nnt=$('p3_mstnnt').value,p3ten=$('p3_ten').value,p3npt=$('p3_mstnpt').value,p3tu=$('p3_tu').value,p3den=$('p3_den').value,p1mst=$('p1_mst').value;
-      let p1tntt=$('p1_tntt').value,p1pay=$('p1_pay').value,p1uq=$('p1_uq').value;
+      let p1tntt=$('p1_tntt').value,p1pay=$('p1_pay').value,p1uq=$('p1_uq').value,p1kt=$('p1_kt').value;
       // Luôn dò cột theo TÊN (chỉ ghi đè khi tìm thấy; nếu không thì giữ chữ cái nhập tay)
       // -> đúng cho mọi bố cục file, không phụ thuộc ô 'Tự động dò dòng tiêu đề'.
       // CHỈ áp dụng ở chế độ 'Theo chữ cái Excel': kết quả dò trả về CHỮ CÁI VỊ TRÍ,
@@ -2049,12 +2056,13 @@ $('btnNpt').onclick=()=>{
         if(c=detectColLetter(pl1Mat,['Thu nhập tính thuế'],p1H))p1tntt=c;
         if(c=detectColLetter(pl1Mat,['Tổng số thuế phải nộp'],p1H))p1pay=c;
         if(c=detectColLetter(pl1Mat,['Cá nhân uỷ quyền QT thay','Cá nhân uỷ quyền quyết toán thay'],p1H))p1uq=c;
+        if(c=detectColLetter(pl1Mat,['Số thuế TNCN đã khấu trừ'],p1H))p1kt=c;
       }
       const uqMap=buildUqMap(pl1Mat,p1H,p1mst,p1uq);
       const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap,uqMap);
       const yIn=parseInt($('p1_year').value,10);
       const yrFix=(yIn>=2000&&yIn<=2100)?yIn:null;
-      let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt,{tntt:p1tntt,tax_payable:p1pay,uy_quyen:p1uq,
+      let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt,{tntt:p1tntt,tax_payable:p1pay,uy_quyen:p1uq,withheld:p1kt,
         year:yrFix,declYear:detectDeclYear(NF.qt),yearByNnt:rc.yearByNnt,defYear:rc.defYear||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat),uqMap});
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
