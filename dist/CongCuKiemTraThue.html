@@ -1464,8 +1464,22 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
     if(dFrom==null&&c.tu_ngay)dFrom=monthIndex(row[ix.tu_ngay]);
     let dTo=monthIndex(row[ix.den_thang]);
     if(dTo==null&&c.den_ngay)dTo=monthIndex(row[ix.den_ngay]);
+    // 2 mốc RIÊNG trên PL3: Thời điểm bắt đầu/kết thúc TÍNH GIẢM TRỪ (ct15/ct16) —
+    // dùng làm 1 trong 3 nguồn để tính 'Số tháng đủ ĐK NPT' (lấy MIN), độc lập với
+    // dFrom/dTo ở trên (vốn ưu tiên ct21/22 rồi mới tới ct15/16).
+    const ngayFrom=c.tu_ngay?monthIndex(row[ix.tu_ngay]):null;
+    const ngayTo=c.den_ngay?monthIndex(row[ix.den_ngay]):null;
+    const yKT=dFrom!=null?Math.floor((dFrom-1)/12):null; // năm đang kiểm tra
     let ok=false,tf='',tt='',why=[];
+    let matchedLo=null,matchedHi=null;   // kỳ TMS liên tục THỰC SỰ đã khớp (nguồn 2)
     if(!recs){src='Không tìm thấy';why.push('Không có trên TMS');}
+    else if(src==='Tên NPT'){
+      // MST NPT trên PL3 KHÔNG khớp MST nào trên TMS, nhưng TÊN NPT lại khớp được
+      // (cùng MST NNT) -> kết luận PL3 đã khai SAI MST NPT, không xét thời gian.
+      tf=recs.map(r=>fmtMonth(r.from)).join('; ');tt=recs.map(r=>fmtMonth(r.to)).join('; ');
+      ok=false;
+      why.push('TMS có NPT này, PL3 khai sai MST NPT');
+    }
     else{
       tf=recs.map(r=>fmtMonth(r.from)).join('; ');tt=recs.map(r=>fmtMonth(r.to)).join('; ');
       if(dFrom==null){why.push('Thiếu Từ tháng kê khai');}
@@ -1473,15 +1487,14 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
         // Năm đang kiểm tra = năm của kỳ kê khai (Từ tháng) trên PL3. Trên TMS:
         // 'Từ tháng' trống -> hiểu = tháng 01 năm đang kiểm tra; 'Đến tháng' trống
         // -> hiểu = tháng 12 năm đang kiểm tra; có dữ liệu thì dùng đúng dữ liệu đó.
-        const yKT=Math.floor((dFrom-1)/12);
         const resFrom=r=>r.from!=null?r.from:(yKT*12+1);
         const resTo=r=>r.to!=null?r.to:(yKT*12+12);
-        for(const r of recs){const lo=resFrom(r),hi=resTo(r);if(dFrom>=lo&&dEnd<=hi){ok=true;break;}}
+        for(const r of recs){const lo=resFrom(r),hi=resTo(r);if(dFrom>=lo&&dEnd<=hi){ok=true;matchedLo=lo;matchedHi=hi;break;}}
         if(!ok){
           for(const r of recs){
             const lo=resFrom(r),hi=resTo(r);
             if(dFrom<lo)why.push(`Kê khai từ ${fmtMonth(dFrom)} trước kỳ TMS (${fmtMonth(lo)})`);
-            if(dEnd>hi)why.push(`Kê khai đến ${fmtMonth(dEnd)} sau kỳ TMS (${fmtMonth(hi)})`);
+            if(dFrom>hi)why.push(`Kê khai từ ${fmtMonth(dFrom)} sau kỳ TMS (${fmtMonth(hi)})`);
           }
           if(!why.length)why.push('Kỳ kê khai ngoài kỳ đăng ký TMS');
         }
@@ -1489,6 +1502,7 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
     }
     let reason=ok?'':[...new Set(why)].join('; ');
     // Ghi đè theo file 'MST NPT là hộ cá nhân kinh doanh'
+    let hokdSpan=null;   // (3) số tháng đủ ĐK hộ CNKD: từ tháng đóng TT tổ chức đến tháng 12 năm đang xét
     if(mstNpt&&Object.prototype.hasOwnProperty.call(hokdMap,mstNpt)){
       const bb=parseDate(hokdMap[mstNpt]);
       const endK=periodDateKey(c.den_ngay?row[ix.den_ngay]:null, dTo!=null?dTo:dFrom, false);
@@ -1496,10 +1510,24 @@ function reconcilePL3(mat,hdrRow,c,lk,hokdMap){
       else{
         const bbK=bb.y*10000+bb.m*100+bb.d;
         if(endK!=null&&endK<bbK){ok=false;reason='NPT là hộ CNKD';}
-        else{ok=true;reason='đủ thời gian npt hộ CNKD từ ngày '+String(bb.d).padStart(2,'0')+'/'+String(bb.m).padStart(2,'0')+'/'+bb.y;}
+        else{
+          ok=true;
+          reason='đủ thời gian npt hộ CNKD từ ngày '+String(bb.d).padStart(2,'0')+'/'+String(bb.m).padStart(2,'0')+'/'+bb.y;
+          const bbMonth=bb.y*12+bb.m, ykt2=yKT!=null?yKT:bb.y;
+          hokdSpan=monthsSpan(bbMonth,ykt2*12+12);
+        }
       }
     }
-    const nMonths=ok?monthsSpan(dFrom,dTo):0;
+    // Số tháng đủ ĐK NPT = NHỎ NHẤT trong: (1) PL3 ct15-ct16; (2) TMS liên tục đã
+    // khớp; (3) hộ CNKD (nếu có) — bỏ qua nguồn nào không áp dụng/không có dữ liệu.
+    let nMonths=0;
+    if(ok){
+      const spans=[];
+      if(ngayFrom!=null&&ngayTo!=null)spans.push(monthsSpan(ngayFrom,ngayTo));
+      if(matchedLo!=null&&matchedHi!=null)spans.push(monthsSpan(matchedLo,matchedHi));
+      if(hokdSpan!=null)spans.push(hokdSpan);
+      nMonths=spans.length?Math.min(...spans):monthsSpan(dFrom,dTo);
+    }
     const mLabel=nMonths?String(nMonths).padStart(2,'0')+' tháng':'';
     out.push(base.concat([src,tf,tt,ok?'TRUE':'FALSE',mLabel,'',reason]));
     if(mstNnt)totals[mstNnt]=(totals[mstNnt]||0)+1;
@@ -1541,7 +1569,7 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
     if(taxCfg){
       let verdict='';
       const raw=String(row[tIx.tntt]==null?'':row[tIx.tntt]).trim();
-      if(!(/^(ct\d+|\[\d+\])/i.test(raw)||raw==='')&&truthy(row[tIx.uq])){
+      if(!(/^(ct\d+|\[\d+\])/i.test(raw)||raw==='')){
         const exp=Math.round(pitProgressiveYear(parseAmount(row[tIx.tntt])));
         const pay=Math.round(parseAmount(row[tIx.pay]));
         verdict=Math.abs(pay-exp)<=1?'TRUE':'FALSE';
