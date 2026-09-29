@@ -1592,6 +1592,13 @@ function detectDeclYear(wb){
   }
   return null;
 }
+// Năm phổ biến nhất ở cột 'Thời điểm bắt đầu tính giảm trừ' (PL3) — chỉ dùng xác định năm tính thuế
+function pl3ColYear(mat,hdrRow){
+  const L=detectColLetter(mat,['Thời điểm bắt đầu tính giảm trừ','Từ tháng'],hdrRow);if(!L)return null;
+  const ci=excelColToIndex(L)-1,cnt={};let best=null,bc=0;
+  for(const row of mat.slice(hdrRow)){const m=monthIndex(row[ci]);if(m==null)continue;const y=Math.floor((m-1)/12);cnt[y]=(cnt[y]||0)+1;if(cnt[y]>bc){bc=cnt[y];best=y;}}
+  return best;
+}
 // PL1: MST NNT -> có uỷ quyền QT thay (true/false). null nếu cột UQ không đọc được.
 function buildUqMap(mat,hdrRow,mstRef,uqRef){
   const header=(mat[hdrRow-1]||[]).map(x=>x==null?'':x);
@@ -1623,7 +1630,8 @@ function applyPL1(mat,hdrRow,mstRef,counts,totals,monthsByNnt,taxCfg){
     const d=mstKey(row[ix]);
     const has=d&&((counts[d]!=null)||(totals[d]!=null));
     // cá nhân KHÔNG uỷ quyền QT thay: không trả kết quả NPT (chỉ kiểm tra thuế)
-    const nonUq=isNonUq(taxCfg&&taxCfg.uqMap,d);
+    // không uỷ quyền: đọc trực tiếp cột UQ trên dòng (khi cột UQ đọc được), không phụ thuộc cột MST
+    const nonUq=(taxCfg&&taxCfg.uqMap&&tIx.uq>=0)?!truthy(row[tIx.uq]):isNonUq(taxCfg&&taxCfg.uqMap,d);
     const npt=nonUq?['','']:[has?(counts[d]||0):'', has?monthsNote(monthsByNnt[d]):''];
     if(taxCfg){
       let verdict='',note='';
@@ -2058,12 +2066,25 @@ $('btnNpt').onclick=()=>{
         if(c=detectColLetter(pl1Mat,['Cá nhân uỷ quyền QT thay','Cá nhân uỷ quyền quyết toán thay'],p1H))p1uq=c;
         if(c=detectColLetter(pl1Mat,['Số thuế TNCN đã khấu trừ'],p1H))p1kt=c;
       }
-      const uqMap=buildUqMap(pl1Mat,p1H,p1mst,p1uq);
+      // Các cột kiểm tra thuế PL1: luôn ưu tiên cột có tên tiêu đề chuẩn HTKK ở CẢ 2 chế độ
+      // (tránh cấu hình theo tên như 'Thu nhập' khớp nhầm 'Thu nhập chịu thuế').
+      // Trả về số thứ tự cột (1-based) -> resolveIndex hiểu đúng ở mọi chế độ.
+      let p1mstUq=p1mst;
+      {
+        const fi=labels=>{const L=detectColLetter(pl1Mat,labels,p1H);return L?excelColToIndex(L):null;};
+        let n;
+        if(n=fi(['Thu nhập tính thuế']))p1tntt=n;
+        if(n=fi(['Tổng số thuế phải nộp']))p1pay=n;
+        if(n=fi(['Cá nhân uỷ quyền QT thay','Cá nhân ủy quyền QT thay','Cá nhân uỷ quyền quyết toán thay','Cá nhân ủy quyền quyết toán thay']))p1uq=n;
+        if(n=fi(['Số thuế TNCN đã khấu trừ']))p1kt=n;
+        if(n=fi(['Mã số thuế']))p1mstUq=n;
+      }
+      const uqMap=buildUqMap(pl1Mat,p1H,p1mstUq,p1uq);
       const rc=reconcilePL3(pl3Mat,p3H,{mst_nnt:p3nnt,ten_npt:p3ten,mst_npt:p3npt,tu_thang:p3tu,den_thang:p3den,tu_ngay:$('p3_tungay').value,den_ngay:$('p3_dengay').value},lk,hokdMap,uqMap);
       const yIn=parseInt($('p1_year').value,10);
       const yrFix=(yIn>=2000&&yIn<=2100)?yIn:null;
       let pl1=applyPL1(pl1Mat,p1H,p1mst,rc.counts,rc.totals,rc.monthsByNnt,{tntt:p1tntt,tax_payable:p1pay,uy_quyen:p1uq,withheld:p1kt,
-        year:yrFix,declYear:detectDeclYear(NF.qt),yearByNnt:rc.yearByNnt,defYear:rc.defYear||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat),uqMap});
+        year:yrFix,declYear:detectDeclYear(NF.qt),yearByNnt:rc.yearByNnt,defYear:rc.defYear||pl3ColYear(pl3Mat,p3H)||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat),uqMap});
       if(NF.ms){
         const msHdr=+$('ms_hdr').value||1;
         const sheetsMat=NF.ms.SheetNames.map(n=>({name:n,mat:sheetMatrix(NF.ms,n)}));
