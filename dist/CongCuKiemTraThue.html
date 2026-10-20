@@ -977,13 +977,13 @@ function buildSheets(recs,origHeader,cfg,meta){
     di.push([tags.join('; '),r.year||'',r.no,ddmy(r.dd),r.mst,r.seller||'',r.goods==null?'':r.goods,r.pre,r.vat,r.statusNNT||'',r.einvStatus||'',r.check||'']);}
   sheets['Dữ liệu chỉ tiêu']=di;
 
-  /* Bảng kê đã xử lý: A-T gốc + U-AC */
-  const uac=['Loại hàng hóa','Trạng thái','Ngày liên quan','Hóa đơn rủi ro','Kê khai trùng','Tra HĐĐT','Tổng tiền thuế (HĐĐT)','Chênh lệch tiền thuế','Check 10%, 8%'];
+  /* Bảng kê đã xử lý: A-T gốc + U-AD ('Trạng thái hóa đơn' = nguyên văn cột trạng thái file HĐĐT) */
+  const uac=['Loại hàng hóa','Trạng thái','Ngày liên quan','Hóa đơn rủi ro','Kê khai trùng','Tra HĐĐT','Trạng thái hóa đơn','Tổng tiền thuế (HĐĐT)','Chênh lệch tiền thuế','Check 10%, 8%'];
   const bxl=[origHeader.concat(uac)];
   for(const r of recs){
     const base=r.row.slice(0,20);while(base.length<20)base.push(null);
     const ab=(r.chenh!=null)?r.chenh:'';  // chênh lệch tính theo TỪNG HÓA ĐƠN (BK là theo dòng)
-    bxl.push(base.concat([r.grp,r.statusNNT||'',r.close?ddmy(r.close):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
+    bxl.push(base.concat([r.grp,r.statusNNT||'',r.close?ddmy(r.close):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.einvStatus||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
   }
   sheets['Bảng kê đã xử lý']=bxl;
 
@@ -1026,15 +1026,15 @@ function buildSheets(recs,origHeader,cfg,meta){
   if(meta.hasEinv){
     // HĐ bị thay thế/điều chỉnh/xóa bỏ (có trên HĐĐT nhưng trạng thái xấu) — TÁCH khỏi 'không tìm thấy'
     const badStatus=new Set(Object.keys(cfg.invoiceStatus));
-    sheets['HĐ sai trạng thái']=detail(r=>badStatus.has(r.statusGroup),[['Nhóm trạng thái',r=>r.statusGroup],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
+    sheets['HĐ sai trạng thái']=detail(r=>badStatus.has(r.statusGroup),[['Nhóm trạng thái',r=>r.statusGroup],['Trạng thái hóa đơn',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
     // HĐ trong bảng kê KHÔNG tìm thấy trên HĐĐT (sheet riêng theo yêu cầu)
-    sheets['HĐ không tìm thấy trên HĐĐT']=detail(r=>r.statusGroup===cfg.notFound,[['Kết quả tra HĐĐT',r=>'Không tìm thấy trên HĐĐT (kỳ này HĐĐT CÓ dữ liệu)']]);
+    sheets['HĐ không tìm thấy trên HĐĐT']=detail(r=>r.statusGroup===cfg.notFound,[['Kết quả tra HĐĐT',r=>'Không tìm thấy trên HĐĐT (kỳ này HĐĐT CÓ dữ liệu)'],['Trạng thái hóa đơn',r=>r.einvStatus||'']]);
     const _OUT=cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT',_DM=cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày';
     if(recs.some(r=>r.statusGroup===_OUT))
-      sheets['HĐ ngoài kỳ dữ liệu HĐĐT']=detail(r=>r.statusGroup===_OUT,[['Kết quả tra HĐĐT',r=>_OUT]]);
+      sheets['HĐ ngoài kỳ dữ liệu HĐĐT']=detail(r=>r.statusGroup===_OUT,[['Kết quả tra HĐĐT',r=>_OUT],['Trạng thái hóa đơn',r=>r.einvStatus||'']]);
     if(recs.some(r=>r.statusGroup===_DM))
-      sheets['HĐ lệch ngày với HĐĐT']=detail(r=>r.statusGroup===_DM,[['Kết quả tra HĐĐT',r=>_DM],['Ngày trên HĐĐT',r=>r.einvDate||''],['Trạng thái hóa đơn (gốc)',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
-    sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Tổng tiền thuế trên bảng kê (cùng số HĐ, ngày, MST bán)',r=>r.sumVatInvoice==null?'':r.sumVatInvoice],['Chênh lệch (HĐĐT - Bảng kê)',r=>r.chenh]]);
+      sheets['HĐ lệch ngày với HĐĐT']=detail(r=>r.statusGroup===_DM,[['Kết quả tra HĐĐT',r=>_DM],['Ngày trên HĐĐT',r=>r.einvDate||''],['Trạng thái hóa đơn',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax]]);
+    sheets['Chênh lệch tiền thuế']=detail(r=>r.chenh!=null&&Math.abs(r.chenh)>0.5,[['Trạng thái hóa đơn',r=>r.einvStatus||''],['Tổng tiền thuế (HĐĐT)',r=>r.totalTax==null?'':r.totalTax],['Tổng tiền thuế trên bảng kê (cùng số HĐ, ngày, MST bán)',r=>r.sumVatInvoice==null?'':r.sumVatInvoice],['Chênh lệch (HĐĐT - Bảng kê)',r=>r.chenh]]);
   }
   return {sheets,summary};
 }
