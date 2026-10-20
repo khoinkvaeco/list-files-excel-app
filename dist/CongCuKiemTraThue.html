@@ -83,6 +83,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <header class="top">
   <h1>📊 Công cụ hỗ trợ kiểm tra thuế</h1>
   <p>Chạy hoàn toàn trong trình duyệt — không cần cài Python/Streamlit. Dữ liệu không rời khỏi máy bạn.</p>
+  <p id="appVersion" style="font-weight:600">Phiên bản 2026.10.20 — cập nhật ngày 20/10/2026</p>
 </header>
 
 <div class="wrap">
@@ -2101,7 +2102,24 @@ $('btnNpt').onclick=()=>{
           NPTRES['PL2 tính thuế']=processPL2(pl2Mat,p2H,{income:$('p2_income').value,nonresident:$('p2_nonres').value,withheld:$('p2_withheld').value});
         }
       }catch(e){/* PL2 tùy chọn */}
-      $('nptMsg').innerHTML='';$('nptResult').style.display='block';
+      // Dòng chẩn đoán: cột & năm THỰC SỰ đã dùng (để phát hiện ngay khi dò nhầm cột)
+      {
+        const ci=(mat,H,ref)=>{const hd=(mat[H-1]||[]).map(x=>x==null?'':x);const i=resolveIndex(hd,ref);
+          return (i>=0&&i<hd.length)?'cột '+idxToColLetter(i)+' "'+esc(hd[i])+'"':'<b style="color:#a12020">KHÔNG TÌM THẤY ('+esc(ref)+')</b>';};
+        const line=(title,H,items)=>'<div><b>'+title+'</b> (dòng tiêu đề '+H+'): '+items.map(([k,v])=>esc(k)+': '+v).join(' | ')+'</div>';
+        const dY=detectDeclYear(NF.qt),fbY=rc.defYear||pl3ColYear(pl3Mat,p3H)||detectTaxYear(pl1Mat)||detectTaxYear(pl3Mat);
+        const yTxt=yrFix?yrFix+' (nhập tay)':dY?dY+' (theo Kỳ kê khai trên tờ khai)':fbY?fbY+' (theo thời gian giảm trừ trên PL3)':'<b style="color:#a12020">không xác định — dùng biểu thuế đến năm 2025</b>';
+        const d=[
+          line('PL1',p1H,[['MST NNT',ci(pl1Mat,p1H,p1mst)],['Thu nhập tính thuế',ci(pl1Mat,p1H,p1tntt)],['Tổng số thuế phải nộp',ci(pl1Mat,p1H,p1pay)],['Uỷ quyền QT thay',ci(pl1Mat,p1H,p1uq)],['Số thuế TNCN đã khấu trừ',ci(pl1Mat,p1H,p1kt)]]),
+          line('PL3',p3H,[['MST NNT',ci(pl3Mat,p3H,p3nnt)],['MST NPT',ci(pl3Mat,p3H,p3npt)],['Tên NPT',ci(pl3Mat,p3H,p3ten)],['Từ tháng',ci(pl3Mat,p3H,p3tu)],['Đến tháng',ci(pl3Mat,p3H,p3den)]]
+            .concat($('p3_tungay').value?[['Bắt đầu giảm trừ',ci(pl3Mat,p3H,$('p3_tungay').value)]]:[])
+            .concat($('p3_dengay').value?[['Kết thúc giảm trừ',ci(pl3Mat,p3H,$('p3_dengay').value)]]:[])),
+          line('TMS',tmH,[['MST NNT',ci(tmsMat,tmH,$('tm_mstnnt').value)],['MST NPT',ci(tmsMat,tmH,$('tm_mstnpt').value)],['Tên NPT',ci(tmsMat,tmH,$('tm_ten').value)],['Từ tháng',ci(tmsMat,tmH,$('tm_tu').value)],['Đến tháng',ci(tmsMat,tmH,$('tm_den').value)]]),
+          '<div><b>Năm kiểm tra (biểu thuế TNCN)</b>: '+yTxt+(uqMap?'':' | <b style="color:#9a5b0a">không đọc được cột uỷ quyền — coi như tất cả là cá nhân uỷ quyền</b>')+'</div>'
+        ];
+        $('nptMsg').innerHTML='<div class="muted" style="border:1px dashed #ced4da;border-radius:8px;padding:8px 10px;margin:8px 0;line-height:1.6">🔎 <b>Cột đã dùng</b> — kiểm tra nhanh nếu kết quả bất thường:'+d.join('')+'</div>';
+      }
+      $('nptResult').style.display='block';
       $('nptMetrics').innerHTML=
         `<div class="metric"><div class="k">NPT trên TMS</div><div class="v">${Object.keys(lk.byMst).length}</div></div>`+
         `<div class="metric"><div class="k">NPT hợp lệ (TRUE)</div><div class="v">${rc.nTrue}</div></div>`+
