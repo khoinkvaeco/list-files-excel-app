@@ -793,9 +793,15 @@ function buildRiskLookup(riskWb,riskCfg){
 }
 function buildTMSLookup(tmsWb,tmsCfg){
   const map={};if(!tmsWb)return map;
-  const mat=sheetMatrix(tmsWb,tmsWb.SheetNames[0]);const header=mat[tmsCfg.headerRow-1]||[];
-  const iMst=resolveIndex(header,tmsCfg.mst),iSt=resolveIndex(header,tmsCfg.status),iCl=resolveIndex(header,tmsCfg.close),iPa=tmsCfg.pause?resolveIndex(header,tmsCfg.pause):-1;
-  for(const row of mat.slice(tmsCfg.headerRow)){
+  const mat=sheetMatrix(tmsWb,tmsWb.SheetNames[0]);
+  // Dò dòng tiêu đề + các cột theo TÊN tiêu đề chuẩn của file TMS (ưu tiên hơn ô cấu hình, vì
+  // cấu hình cũ/lệch cột làm trống trạng thái, ngày đóng, tạm nghỉ); không dò được thì dùng cấu hình.
+  const hRow=detectHeaderRow(mat,['Mã số thuế','Trạng thái ĐKT tổ chức','Ngày đóng trạng thái tổ chức','Tạm nghỉ từ ngày'],15,tmsCfg.headerRow);
+  const header=mat[hRow-1]||[];
+  const byName=lbl=>{const t=normName(lbl);const i=header.findIndex(x=>normName(x)===t);return i;};
+  const pick=(lbl,ref)=>{const i=byName(lbl);return i>=0?i:(ref?resolveIndex(header,ref):-1);};
+  const iMst=pick('Mã số thuế',tmsCfg.mst),iSt=pick('Trạng thái ĐKT tổ chức',tmsCfg.status),iCl=pick('Ngày đóng trạng thái tổ chức',tmsCfg.close),iPa=pick('Tạm nghỉ từ ngày',tmsCfg.pause);
+  for(const row of mat.slice(hRow)){
     const mst=cleanMST(iMst>=0?row[iMst]:null);if(!mst)continue;
     const st=iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'';
     const cl=iCl>=0?parseDate(row[iCl]):null;
@@ -909,7 +915,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
 
   // TMS
   const tms=buildTMSLookup(tmsWb,cfg.tms);
-  for(const r of recs){const t=tms[r.mst];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
+  for(const r of recs){const t=tms[r.mst]||tms[baseMST(r.mst)];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
     // Ngày liên quan: NNT tạm ngừng KD có thời hạn -> 'Tạm nghỉ từ ngày'; các trạng thái còn lại (không hoạt động tại địa chỉ, ngừng HĐ chưa hoàn thành thủ tục...) -> 'Ngày đóng trạng thái tổ chức'
     r.rel=(t&&t.pause&&stripAccents(t.status||'').toLowerCase().includes('tam ngung'))?t.pause:r.close;
     r.afterClose=(r.dd&&r.close&&cmpDMY(r.dd,r.close)>0);}
