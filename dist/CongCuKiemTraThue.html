@@ -83,7 +83,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <header class="top">
   <h1>📊 Công cụ hỗ trợ kiểm tra thuế</h1>
   <p>Chạy hoàn toàn trong trình duyệt — không cần cài Python/Streamlit. Dữ liệu không rời khỏi máy bạn.</p>
-  <p id="appVersion" style="font-weight:600">Phiên bản 2026.10.20 — cập nhật ngày 20/10/2026</p>
+  <p id="appVersion" style="font-weight:600">Phiên bản 2026.11.02 — cập nhật ngày 02/11/2026</p>
 </header>
 
 <div class="wrap">
@@ -629,17 +629,43 @@ function vatCatFor(dd,cats){
   for(const c of cats){const ks=+c.from.replace(/-/g,''),ke=+c.to.replace(/-/g,'');if(k>=ks&&k<=ke)return c;}
   return null;
 }
+// Từ khóa nhận diện ngành (chỉ dùng khi HĐ thuế suất 10% trong kỳ giảm thuế)
+const VAT_IT_KW=['máy tính','laptop','computer','máy vi tính','bàn phím','chuột','loa','bluetooth','internet','wifi','wi-fi','điện thoại','card','phần mềm','software','máy chủ','server','ổ cứng','usb','màn hình','máy in','router','modem','tên miền','hosting','cloud','viễn thông','tin học','cntt','website','sim'];
+const VAT_BANK_KW=['ngân hàng','bank','tín dụng','lãi vay','phí chuyển tiền','phí chuyển khoản','phí tài khoản','phí thẻ','bảo lãnh','bao thanh toán','tài chính'];
+const VAT_BUILD_KW=['thi công','lắp đặt','thiết kế'];
+// 'văn phòng' đứng riêng quá rộng (văn phòng phẩm, thiết bị văn phòng...) -> chỉ coi là nhóm không
+// được giảm (bất động sản) khi tên hàng có thêm từ khóa cho thuê/mặt bằng/tòa nhà...
+const VAT_RE_KW=['cho thuê','thuê','mặt bằng','bất động sản','tòa nhà','cao ốc','phí quản lý','khu vực làm việc','chỗ ngồi','coworking','co-working','căn hộ','nhà xưởng','kho bãi'];
+function vatAnyKw(t,list){for(const k of list){if(wordRe(k).test(t))return k;}return '';}
 // Trả về cụm từ khóa khớp (nếu có) giữa tên mặt hàng và danh mục không được giảm
 function vatCatMatch(goods,cat){
   const t=String(goods||'').toLowerCase().replace(/\s+/g,' ').trim();
   if(!t||!cat)return '';
-  for(const p of cat.phrases){if(t.includes(p))return p;}
+  for(const p of cat.phrases){
+    if(!t.includes(p))continue;
+    if(/(^|\s)văn phòng(\s|$)/.test(p)){
+      if(/văn phòng phẩm/.test(t))continue;
+      if(!vatAnyKw(t,VAT_RE_KW))continue;
+    }
+    return p;
+  }
   return '';
 }
 function vatCheck(dd,pre,vat,goods,periods,excl,cats){
   const rate=inferRate(pre,vat);if(rate==null)return '';
   const red=inReduced(dd,periods);
   const is10=Math.abs(rate-0.10)<0.005,is8=Math.abs(rate-0.08)<0.005;
+  // CHỈ kiểm tra HĐ thuế suất 10% có ngày HĐ nằm trong các kỳ được giảm thuế GTGT
+  if(!(is10&&red))return '';
+  {
+    const t=String(goods||'').toLowerCase().replace(/\s+/g,' ').trim();
+    const it=vatAnyKw(t,VAT_IT_KW);
+    if(it)return `10% - đúng (công nghệ thông tin, viễn thông: "${it}")`;
+    const bk=vatAnyKw(t,VAT_BANK_KW);
+    if(bk)return `10% - đúng (tài chính, ngân hàng: "${bk}")`;
+    const bd=vatAnyKw(t,VAT_BUILD_KW);
+    if(bd&&!wordRe('cung cấp').test(t))return `10% - SAI: thi công/lắp đặt/thiết kế được giảm, phải 8% ("${bd}")`;
+  }
   // Ưu tiên danh mục NĐ (nếu đã nạp file danh mục) — chỉ xét khi HĐ nằm trong kỳ giảm
   const cat=red?vatCatFor(dd,cats):null;
   if(cat){
@@ -732,6 +758,20 @@ function fmtNum(x){if(x==null||x==='')return '';if(typeof x==='number')return x.
 </script>
 <script>
 /* ================= PIPELINE KIỂM TRA ================= */
+// Tra rủi ro theo MST với SHEET ĐẦU TIÊN của file DS DN rủi ro (bất kể tên sheet), lấy cột
+// 'Văn bản'. Dòng tiêu đề + cột MST/Văn bản dò theo TÊN tiêu đề; không dò được thì dùng cấu hình
+// cũ. Các sheet khác theo cấu hình cũ (nếu file có đúng tên sheet đó) giữ nguyên.
+function riskCfgFirstSheet(riskWb,riskCfg){
+  if(!riskWb||!riskWb.SheetNames.length)return riskCfg;
+  const first=riskWb.SheetNames[0];
+  const mat=sheetMatrix(riskWb,first);
+  const hr=detectHeaderRow(mat,['Mã số thuế','Văn bản','Tên công ty'],15,1);
+  const hd=mat[hr-1]||[];
+  const find=lbl=>{const i=hd.findIndex(x=>normName(x)===normName(lbl));return i>=0?i+1:null;};
+  const fb=riskCfg.find(c=>c.name===first)||riskCfg[0]||{headerRow:1,mst:'B',doc:'F'};
+  const first_cfg={name:first,headerRow:hr,mst:find('Mã số thuế')||fb.mst,doc:find('Văn bản')||fb.doc};
+  return [first_cfg].concat(riskCfg.filter(c=>c.name!==first));
+}
 function buildRiskLookup(riskWb,riskCfg){
   const map={};if(!riskWb)return map;
   for(const sp of riskCfg){
@@ -867,7 +907,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   for(const r of recs){const t=tms[r.mst];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
     r.afterClose=(r.dd&&r.close&&cmpDMY(r.dd,r.close)>0);}
   // risk
-  const risk=buildRiskLookup(riskWb,cfg.risk);
+  const risk=buildRiskLookup(riskWb,riskCfgFirstSheet(riskWb,cfg.risk));
   for(const r of recs){r.riskDoc=risk[r.mst]||'';}
   // trùng
   const groups={};
@@ -980,11 +1020,21 @@ function buildSheets(recs,origHeader,cfg,meta){
 
   /* Bảng kê đã xử lý: A-T gốc + U-AD ('Trạng thái hóa đơn' = nguyên văn cột trạng thái file HĐĐT) */
   const uac=['Loại hàng hóa','Trạng thái','Ngày liên quan','Hóa đơn rủi ro','Kê khai trùng','Tra HĐĐT','Trạng thái hóa đơn','Tổng tiền thuế (HĐĐT)','Chênh lệch tiền thuế','Check 10%, 8%'];
-  const bxl=[origHeader.concat(uac)];
+  let bxl=[origHeader.concat(uac)];
   for(const r of recs){
     const base=r.row.slice(0,20);while(base.length<20)base.push(null);
     const ab=(r.chenh!=null)?r.chenh:'';  // chênh lệch tính theo TỪNG HÓA ĐƠN (BK là theo dòng)
     bxl.push(base.concat([r.grp,r.statusNNT||'',r.close?ddmy(r.close):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.einvStatus||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
+  }
+  // bỏ các cột TRỐNG hoàn toàn (không tiêu đề, không dữ liệu) nằm sau cột gốc cuối cùng
+  // và trước 'Loại hàng hóa' (do đệm cho đủ 20 cột gốc)
+  {
+    const blank=new Set();
+    for(let j=0;j<20;j++){
+      const hd=bxl[0][j];if(hd!=null&&String(hd).trim()!=='')continue;
+      if(bxl.slice(1).every(row=>row[j]==null||row[j]===''))blank.add(j);
+    }
+    if(blank.size)bxl=bxl.map(row=>row.filter((_,j)=>!blank.has(j)));
   }
   sheets['Bảng kê đã xử lý']=bxl;
 
