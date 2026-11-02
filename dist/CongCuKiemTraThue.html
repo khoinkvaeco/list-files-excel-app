@@ -630,7 +630,7 @@ function vatCatFor(dd,cats){
   return null;
 }
 // Từ khóa nhận diện ngành (chỉ dùng khi HĐ thuế suất 10% trong kỳ giảm thuế)
-const VAT_IT_KW=['máy tính','laptop','computer','máy vi tính','bàn phím','chuột','loa','bluetooth','internet','wifi','wi-fi','điện thoại','card','phần mềm','software','máy chủ','server','ổ cứng','usb','màn hình','máy in','router','modem','tên miền','hosting','cloud','viễn thông','tin học','cntt','website','sim'];
+const VAT_IT_KW=['máy tính','laptop','computer','máy vi tính','bàn phím','chuột','loa','bluetooth','internet','wifi','wi-fi','điện thoại','card','phần mềm','software','máy chủ','server','ổ cứng','usb','màn hình','máy in','router','modem','tên miền','hosting','cloud','viễn thông','tin học','cntt','website','sim','cước di động','chữ ký số'];
 const VAT_BANK_KW=['ngân hàng','bank','tín dụng','lãi vay','phí chuyển tiền','phí chuyển khoản','phí tài khoản','phí thẻ','bảo lãnh','bao thanh toán','tài chính'];
 const VAT_BUILD_KW=['thi công','lắp đặt','thiết kế'];
 // 'văn phòng' đứng riêng quá rộng (văn phòng phẩm, thiết bị văn phòng...) -> chỉ coi là nhóm không
@@ -908,7 +908,7 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
     r.afterClose=(r.dd&&r.close&&cmpDMY(r.dd,r.close)>0);}
   // risk
   const risk=buildRiskLookup(riskWb,riskCfgFirstSheet(riskWb,cfg.risk));
-  for(const r of recs){r.riskDoc=risk[r.mst]||'';}
+  for(const r of recs){r.riskDoc=risk[r.mst]||risk[baseMST(r.mst)]||'';}
   // trùng
   const groups={};
   recs.forEach((r,i)=>{if(!r.no&&!r.mst)return;const k=r.no+'|'+dkey(r.dd)+'|'+r.mst+'|'+Math.round(r.pre);(groups[k]=groups[k]||[]).push(i);});
