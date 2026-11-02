@@ -915,13 +915,13 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
 
   // TMS
   const tms=buildTMSLookup(tmsWb,cfg.tms);
-  for(const r of recs){const t=tms[r.mst]||tms[baseMST(r.mst)];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
+  for(const r of recs){const t=tms[r.mst];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
     // Ngày liên quan: NNT tạm ngừng KD có thời hạn -> 'Tạm nghỉ từ ngày'; các trạng thái còn lại (không hoạt động tại địa chỉ, ngừng HĐ chưa hoàn thành thủ tục...) -> 'Ngày đóng trạng thái tổ chức'
     r.rel=(t&&t.pause&&stripAccents(t.status||'').toLowerCase().includes('tam ngung'))?t.pause:r.close;
     r.afterClose=(r.dd&&r.close&&cmpDMY(r.dd,r.close)>0);}
   // risk
   const risk=buildRiskLookup(riskWb,riskCfgFirstSheet(riskWb,cfg.risk));
-  for(const r of recs){r.riskDoc=risk[r.mst]||risk[baseMST(r.mst)]||'';}
+  for(const r of recs){r.riskDoc=risk[r.mst]||'';}
   // trùng
   const groups={};
   // khóa trùng gồm cả tên mặt hàng: khác tên hàng = dòng khác của cùng hóa đơn, không phải trùng
