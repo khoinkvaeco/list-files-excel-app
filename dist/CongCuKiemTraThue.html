@@ -911,7 +911,8 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   for(const r of recs){r.riskDoc=risk[r.mst]||risk[baseMST(r.mst)]||'';}
   // trùng
   const groups={};
-  recs.forEach((r,i)=>{if(!r.no&&!r.mst)return;const k=r.no+'|'+dkey(r.dd)+'|'+r.mst+'|'+Math.round(r.pre);(groups[k]=groups[k]||[]).push(i);});
+  // khóa trùng gồm cả tên mặt hàng: khác tên hàng = dòng khác của cùng hóa đơn, không phải trùng
+  recs.forEach((r,i)=>{if(!r.no&&!r.mst)return;const k=r.no+'|'+dkey(r.dd)+'|'+r.mst+'|'+Math.round(r.pre)+'|'+normName(r.goods);(groups[k]=groups[k]||[]).push(i);});
   let gid=0;for(const k in groups){if(groups[k].length>1){gid++;const tag='TRÙNG-'+String(gid).padStart(3,'0');groups[k].forEach(i=>{recs[i].dupTag=tag;recs[i].dupN=groups[k].length;});}}
   recs.forEach(r=>{r.dup=!!r.dupTag;});
   // einvoice
@@ -958,7 +959,7 @@ function indicatorSpecs(recs,cfg,hasEinv){
   const statuses=[...new Set(recs.map(r=>r.statusNNT).filter(s=>s&&!s.toLowerCase().includes('đang hoạt động')))].sort();
   for(const s of statuses)specs.push({label:s,test:r=>r.statusNNT===s,note:'Từ trạng thái NNT (tra TMS theo MST)'});
   if(recs.some(r=>r.riskDoc))specs.push({label:'Hóa đơn của DN rủi ro',test:r=>!!r.riskDoc,note:'Từ dò MST với danh sách DN rủi ro'});
-  if(recs.some(r=>r.dup))specs.push({label:'Hóa đơn kê khai trùng',test:r=>r.dup,note:'Từ trùng số HĐ + ngày + MST + giá trị chưa thuế'});
+  if(recs.some(r=>r.dup))specs.push({label:'Hóa đơn kê khai trùng',test:r=>r.dup,note:'Từ trùng số HĐ + ngày + MST + giá trị chưa thuế + tên mặt hàng'});
   for(const label in cfg.goods){if(recs.some(r=>r.grp.includes(label)))specs.push({label,test:r=>r.grp.includes(label),note:`Từ loại hàng hóa "${label}"`});}
   if(hasEinv){
     const problem=new Set([...Object.keys(cfg.invoiceStatus),cfg.notFound,cfg.einvOutRange||'Ngoài kỳ dữ liệu HĐĐT',cfg.einvDateMismatch||'Khớp MST + Số HĐ nhưng lệch ngày']);
