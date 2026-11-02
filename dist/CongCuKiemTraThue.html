@@ -127,6 +127,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <label class="fld"><span>Trạng thái tổ chức</span><input type="text" id="t_status"></label>
           <label class="fld"><span>Ngày đóng trạng thái</span><input type="text" id="t_close"></label>
         </div>
+        <div class="row2">
+          <label class="fld"><span>Tạm nghỉ từ ngày</span><input type="text" id="t_pause"></label>
+        </div>
       </div></details>
 
       <details><summary>File hóa đơn điện tử</summary><div class="body">
@@ -413,8 +416,8 @@ const $=id=>document.getElementById(id);
 const DEF={
   main_letter:{mst:'L',seller:'I',invoice_no:'F',invoice_date:'G',pretax:'Q',vat:'S',goods:'M',period:''},
   main_name:{mst:'Mã số thuế người bán',seller:'Tên người bán',invoice_no:'Số hóa đơn',invoice_date:'Ngày hóa đơn',pretax:'chưa có thuế',vat:'Thuế GTGT',goods:'hàng',period:''},
-  tms_letter:{mst:'D',status:'AS',close:'BB'},
-  tms_name:{mst:'Mã số thuế',status:'Trạng thái ĐKT tổ chức',close:'Ngày đóng trạng thái tổ chức'},
+  tms_letter:{mst:'D',status:'AS',close:'BB',pause:'AV'},
+  tms_name:{mst:'Mã số thuế',status:'Trạng thái ĐKT tổ chức',close:'Ngày đóng trạng thái tổ chức',pause:'Tạm nghỉ từ ngày'},
   einv_letter:{mst:'G',invoice_no:'D',invoice_date:'E',status:'S',total_tax:'M'},
   einv_name:{mst:'Mã số thuế người bán',invoice_no:'Số hóa đơn',invoice_date:'Ngày lập',status:'Trạng thái hóa đơn',total_tax:'Tổng tiền thuế'},
   risk:[{name:'Cơ quan điều tra - UPDATE',headerRow:1,mst:'B',doc:'F'},
@@ -791,14 +794,16 @@ function buildRiskLookup(riskWb,riskCfg){
 function buildTMSLookup(tmsWb,tmsCfg){
   const map={};if(!tmsWb)return map;
   const mat=sheetMatrix(tmsWb,tmsWb.SheetNames[0]);const header=mat[tmsCfg.headerRow-1]||[];
-  const iMst=resolveIndex(header,tmsCfg.mst),iSt=resolveIndex(header,tmsCfg.status),iCl=resolveIndex(header,tmsCfg.close);
+  const iMst=resolveIndex(header,tmsCfg.mst),iSt=resolveIndex(header,tmsCfg.status),iCl=resolveIndex(header,tmsCfg.close),iPa=tmsCfg.pause?resolveIndex(header,tmsCfg.pause):-1;
   for(const row of mat.slice(tmsCfg.headerRow)){
     const mst=cleanMST(iMst>=0?row[iMst]:null);if(!mst)continue;
     const st=iSt>=0?String(row[iSt]==null?'':row[iSt]).trim():'';
     const cl=iCl>=0?parseDate(row[iCl]):null;
+    const pa=iPa>=0?parseDate(row[iPa]):null;
     const prev=map[mst];
-    if(!prev||(cl&&(!prev.close||cmpDMY(cl,prev.close)>0)))map[mst]={status:st,close:cl};
+    if(!prev||(cl&&(!prev.close||cmpDMY(cl,prev.close)>0)))map[mst]={status:st,close:cl,pause:pa};
     else if(prev&&!prev.status&&st)prev.status=st;
+    if(map[mst]&&!map[mst].pause&&pa)map[mst].pause=pa;
   }
   return map;
 }
@@ -905,6 +910,8 @@ function runAudit(mainWb,mainSheet,tmsWb,riskWb,einvWb,cfg,vatCatWb){
   // TMS
   const tms=buildTMSLookup(tmsWb,cfg.tms);
   for(const r of recs){const t=tms[r.mst];r.statusNNT=t?t.status:'';r.close=t?t.close:null;
+    // Ngày liên quan: NNT tạm ngừng KD có thời hạn -> 'Tạm nghỉ từ ngày'; các trạng thái còn lại (không hoạt động tại địa chỉ, ngừng HĐ chưa hoàn thành thủ tục...) -> 'Ngày đóng trạng thái tổ chức'
+    r.rel=(t&&t.pause&&stripAccents(t.status||'').toLowerCase().includes('tam ngung'))?t.pause:r.close;
     r.afterClose=(r.dd&&r.close&&cmpDMY(r.dd,r.close)>0);}
   // risk
   const risk=buildRiskLookup(riskWb,riskCfgFirstSheet(riskWb,cfg.risk));
@@ -1025,7 +1032,7 @@ function buildSheets(recs,origHeader,cfg,meta){
   for(const r of recs){
     const base=r.row.slice(0,20);while(base.length<20)base.push(null);
     const ab=(r.chenh!=null)?r.chenh:'';  // chênh lệch tính theo TỪNG HÓA ĐƠN (BK là theo dòng)
-    bxl.push(base.concat([r.grp,r.statusNNT||'',r.close?ddmy(r.close):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.einvStatus||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
+    bxl.push(base.concat([r.grp,r.statusNNT||'',r.rel?ddmy(r.rel):'',r.riskDoc||'',r.dupTag||'',r.statusGroup||'',r.einvStatus||'',r.totalTax==null?'':r.totalTax,ab,r.check||'']));
   }
   // bỏ các cột TRỐNG hoàn toàn (không tiêu đề, không dữ liệu) nằm sau cột gốc cuối cùng
   // và trước 'Loại hàng hóa' (do đệm cho đủ 20 cột gốc)
@@ -1047,10 +1054,11 @@ function buildSheets(recs,origHeader,cfg,meta){
   /* sheet NNT KHÔNG HOẠT ĐỘNG — đủ cột như 'Bảng kê đã xử lý' (từng dòng hóa đơn,
      KHÔNG gộp theo MST), chỉ lọc các dòng có người bán trạng thái bất thường. */
   {
-    const nntRows=[bxl[0]];
+    const nntRows=[bxl[0].concat(['Ngày chênh lệch (Ngày liên quan - Ngày hóa đơn)'])];
+    const dayDiff=r=>(r.rel&&r.dd)?Math.round((Date.UTC(r.rel.y,r.rel.m-1,r.rel.d)-Date.UTC(r.dd.y,r.dd.m-1,r.dd.d))/86400000):'';
     recs.forEach((r,i)=>{
       const st=(r.statusNNT||'').trim();
-      if(st&&!st.toLowerCase().includes('đang hoạt động'))nntRows.push(bxl[i+1]);
+      if(st&&!st.toLowerCase().includes('đang hoạt động'))nntRows.push(bxl[i+1].concat([dayDiff(r)]));
     });
     if(nntRows.length>1){
       sheets['NNT không hoạt động']=nntRows;
@@ -1797,7 +1805,7 @@ const linesOf=s=>s.split('\n').map(x=>x.trim()).filter(Boolean);
 function setColInputs(mode){
   const m=DEF['main_'+mode],t=DEF['tms_'+mode],e=DEF['einv_'+mode];
   $('m_mst').value=m.mst;$('m_seller').value=m.seller||'';$('m_no').value=m.invoice_no;$('m_date').value=m.invoice_date;$('m_pre').value=m.pretax;$('m_vat').value=m.vat;$('m_goods').value=m.goods;$('m_period').value=m.period||'';
-  $('t_mst').value=t.mst;$('t_status').value=t.status;$('t_close').value=t.close;
+  $('t_mst').value=t.mst;$('t_status').value=t.status;$('t_close').value=t.close;$('t_pause').value=t.pause||'';
   $('e_mst').value=e.mst;$('e_no').value=e.invoice_no;$('e_date').value=e.invoice_date;$('e_status').value=e.status;$('e_tax').value=e.total_tax;
 }
 function setGoodsDefaults(){$('kw_sxkd').value=DEF.goods['Không phục vụ SXKD'].join('\n');$('kw_qt').value=DEF.goods['Quà tặng'].join('\n');}
@@ -1810,7 +1818,7 @@ function getCfg(){
   COL_MODE=$('colMode').value;
   return {
     main:{headerRow:+$('m_hdr').value||1,cols:{mst:$('m_mst').value.trim(),seller:$('m_seller').value.trim(),invoice_no:$('m_no').value.trim(),invoice_date:$('m_date').value.trim(),pretax:$('m_pre').value.trim(),vat:$('m_vat').value.trim(),goods:$('m_goods').value.trim(),period:$('m_period').value.trim()}},
-    tms:{headerRow:+$('t_hdr').value||1,mst:$('t_mst').value.trim(),status:$('t_status').value.trim(),close:$('t_close').value.trim()},
+    tms:{headerRow:+$('t_hdr').value||1,mst:$('t_mst').value.trim(),status:$('t_status').value.trim(),close:$('t_close').value.trim(),pause:$('t_pause').value.trim()},
     einv:{headerRow:+$('e_hdr').value||1,cols:{mst:$('e_mst').value.trim(),invoice_no:$('e_no').value.trim(),invoice_date:$('e_date').value.trim(),status:$('e_status').value.trim(),total_tax:$('e_tax').value.trim()}},
     risk:DEF.risk,goods:{'Không phục vụ SXKD':linesOf($('kw_sxkd').value),'Quà tặng':linesOf($('kw_qt').value)},
     invoiceStatus:DEF.invoiceStatus,notFound:DEF.notFound,einvFrom:DEF.einvFrom,einvOutRange:DEF.einvOutRange,einvDateMismatch:DEF.einvDateMismatch,reducedPeriods:DEF.reducedPeriods,periodSheetHint:DEF.periodSheetHint,exclude:DEF.exclude
@@ -1819,7 +1827,7 @@ function getCfg(){
 function saveCfg(){
   const c={colMode:$('colMode').value,
     m:{hdr:$('m_hdr').value,mst:$('m_mst').value,seller:$('m_seller').value,no:$('m_no').value,date:$('m_date').value,pre:$('m_pre').value,vat:$('m_vat').value,goods:$('m_goods').value,period:$('m_period').value},
-    t:{hdr:$('t_hdr').value,mst:$('t_mst').value,status:$('t_status').value,close:$('t_close').value},
+    t:{hdr:$('t_hdr').value,mst:$('t_mst').value,status:$('t_status').value,close:$('t_close').value,pause:$('t_pause').value},
     e:{hdr:$('e_hdr').value,mst:$('e_mst').value,no:$('e_no').value,date:$('e_date').value,status:$('e_status').value,tax:$('e_tax').value},
     kw:{sxkd:$('kw_sxkd').value,qt:$('kw_qt').value}};
   localStorage.setItem(LS,JSON.stringify(c));$('savedNote').style.display='block';
@@ -1829,7 +1837,7 @@ function loadCfg(){
   $('colMode').value=(c&&c.colMode)||'letter';
   if(c){
     $('m_hdr').value=c.m.hdr;$('m_mst').value=c.m.mst;$('m_seller').value=c.m.seller||'';$('m_no').value=c.m.no;$('m_date').value=c.m.date;$('m_pre').value=c.m.pre;$('m_vat').value=c.m.vat;$('m_goods').value=c.m.goods;$('m_period').value=c.m.period||'';
-    $('t_hdr').value=c.t.hdr;$('t_mst').value=c.t.mst;$('t_status').value=c.t.status;$('t_close').value=c.t.close;
+    $('t_hdr').value=c.t.hdr;$('t_mst').value=c.t.mst;$('t_status').value=c.t.status;$('t_close').value=c.t.close;$('t_pause').value=c.t.pause||(c.colMode==='name'?DEF.tms_name.pause:DEF.tms_letter.pause);
     $('e_hdr').value=c.e.hdr;$('e_mst').value=c.e.mst;$('e_no').value=c.e.no;$('e_date').value=c.e.date;$('e_status').value=c.e.status;$('e_tax').value=c.e.tax;
     $('kw_sxkd').value=c.kw.sxkd;$('kw_qt').value=c.kw.qt;$('savedNote').style.display='block';
   }else{setColInputs('letter');setGoodsDefaults();}
